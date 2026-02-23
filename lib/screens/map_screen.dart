@@ -1,6 +1,7 @@
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_animations/flutter_map_animations.dart';
@@ -9,6 +10,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../models/mock_location.dart';
+import '../services/ai_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/map_pin.dart';
 
@@ -24,11 +26,22 @@ const _flyToZoom = 15.2;
 const _flyToDuration = Duration(milliseconds: 650);
 
 /// Discovery map: real FlutterMap, dark tiles, custom markers, bottom carousel.
-/// Swiping the carousel flies the map to the corresponding marker.
+/// When [previewLocation] is set, shows a ghost marker and "Found it!" confirmation card.
 class MapScreen extends StatefulWidget {
-  const MapScreen({super.key, this.userPinnedLocations = const []});
+  const MapScreen({
+    super.key,
+    this.userPinnedLocations = const [],
+    this.previewSpot,
+    this.previewLocation,
+    this.onConfirmPreview,
+    this.onDiscardPreview,
+  });
 
   final List<MockLocation> userPinnedLocations;
+  final AnalyzedSpot? previewSpot;
+  final MockLocation? previewLocation;
+  final VoidCallback? onConfirmPreview;
+  final VoidCallback? onDiscardPreview;
 
   @override
   State<MapScreen> createState() => _MapScreenState();
@@ -40,6 +53,8 @@ class _MapScreenState extends State<MapScreen>
       PageController(viewportFraction: 0.88);
   late final AnimatedMapController _mapController;
   int _selectedIndex = 0;
+  /// Index in _locations of the marker that should play the pin-drop animation.
+  int? _pinDropIndex;
 
   List<MockLocation> get _locations => [
     ...mockDiscoverLocations,
@@ -55,6 +70,34 @@ class _MapScreenState extends State<MapScreen>
       curve: Curves.easeInOutCubic,
       cancelPreviousAnimations: true,
     );
+  }
+
+  @override
+  void didUpdateWidget(covariant MapScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Fly to preview location when it appears.
+    if (widget.previewLocation != null && oldWidget.previewLocation != widget.previewLocation) {
+      _flyToLocation(widget.previewLocation!);
+    }
+    final prevCount = oldWidget.userPinnedLocations.length;
+    final newCount = widget.userPinnedLocations.length;
+    if (newCount > prevCount && newCount > 0) {
+      final newLoc = widget.userPinnedLocations.last;
+      final index = _locations.length - 1;
+      setState(() {
+        _pinDropIndex = index;
+        _selectedIndex = index;
+      });
+      _flyToLocation(newLoc);
+      _carouselController.animateToPage(
+        index,
+        duration: const Duration(milliseconds: 400),
+        curve: Curves.easeOutCubic,
+      );
+      Future.delayed(const Duration(milliseconds: 900), () {
+        if (mounted) setState(() => _pinDropIndex = null);
+      });
+    }
   }
 
   @override
@@ -89,19 +132,188 @@ class _MapScreenState extends State<MapScreen>
     );
   }
 
+  void _resetMapToInitial() {
+    _mapController.animateTo(
+      dest: _parisCenter,
+      zoom: _defaultZoom,
+      duration: _flyToDuration,
+      curve: Curves.easeInOutCubic,
+      cancelPreviousAnimations: true,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.sizeOf(context);
+    final showPreview = widget.previewSpot != null && widget.previewLocation != null;
     return Scaffold(
       backgroundColor: AppColors.background,
       body: Stack(
         fit: StackFit.expand,
         children: [
           _buildMap(size),
-          _buildBottomCarousel(size),
+          if (!showPreview) _buildBottomCarousel(size),
+          if (showPreview) _buildFoundItCard(size),
         ],
       ),
     );
+  }
+
+  Widget _buildFoundItCard(Size size) {
+    final spot = widget.previewSpot!;
+    return Positioned(
+      left: 0,
+      right: 0,
+      bottom: 0,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 0, 24, 100),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(24),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(24),
+                  color: Colors.white.withValues(alpha: 0.08),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.18),
+                    width: 1,
+                  ),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      'Found it!',
+                      style: GoogleFonts.inter(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.primaryAccent,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      spot.name,
+                      style: GoogleFonts.inter(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textPrimary,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    if (spot.category != null && spot.category!.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          color: AppColors.primaryAccent.withValues(alpha: 0.12),
+                          border: Border.all(
+                            color: AppColors.primaryAccent.withValues(alpha: 0.35),
+                            width: 1,
+                          ),
+                        ),
+                        child: Text(
+                          spot.category!,
+                          style: GoogleFonts.inter(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.primaryAccent,
+                          ),
+                        ),
+                      ),
+                    ],
+                    if (spot.description.isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      Text(
+                        spot.description,
+                        style: GoogleFonts.inter(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w400,
+                          color: AppColors.textSecondary,
+                          height: 1.4,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                    const SizedBox(height: 20),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Container(
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(14),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: AppColors.primaryAccent.withValues(alpha: 0.45),
+                                  blurRadius: 12,
+                                  spreadRadius: 0,
+                                ),
+                              ],
+                            ),
+                            child: FilledButton.icon(
+                              onPressed: () {
+                                HapticFeedback.mediumImpact();
+                                widget.onConfirmPreview?.call();
+                              },
+                              icon: const Icon(LucideIcons.mapPin, size: 18),
+                              label: const Text('Add to My Map'),
+                              style: FilledButton.styleFrom(
+                                backgroundColor: AppColors.primaryAccent,
+                                foregroundColor: AppColors.background,
+                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                              ),
+                            ),
+                          ),
+                        )
+                            .animate()
+                            .scale(begin: const Offset(0.9, 0.9), end: const Offset(1, 1), duration: 400.ms, curve: Curves.elasticOut)
+                            .fadeIn(duration: 250.ms),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () {
+                              widget.onDiscardPreview?.call();
+                              _resetMapToInitial();
+                            },
+                            icon: const Icon(LucideIcons.x, size: 18),
+                            label: const Text('Discard'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppColors.textPrimary,
+                              side: BorderSide(color: Colors.white.withValues(alpha: 0.3)),
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                            ),
+                          ),
+                        )
+                            .animate()
+                            .scale(begin: const Offset(0.9, 0.9), end: const Offset(1, 1), duration: 400.ms, curve: Curves.elasticOut)
+                            .fadeIn(delay: 80.ms, duration: 250.ms),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    )
+        .animate()
+        .fadeIn(duration: 300.ms)
+        .slideY(begin: 0.2, end: 0, duration: 350.ms, curve: Curves.easeOutCubic);
   }
 
   Widget _buildMap(Size size) {
@@ -123,6 +335,23 @@ class _MapScreenState extends State<MapScreen>
             userAgentPackageName: 'com.example.pintok',
             retinaMode: true,
           ),
+          if (widget.previewLocation != null)
+            MarkerLayer(
+              markers: [
+                Marker(
+                  point: LatLng(widget.previewLocation!.lat, widget.previewLocation!.lng),
+                  width: 56,
+                  height: 56,
+                  alignment: Alignment.center,
+                  child: MapPin(
+                    location: widget.previewLocation!,
+                    size: 44,
+                    isSelected: false,
+                    isGhost: true,
+                  ),
+                ),
+              ],
+            ),
           MarkerLayer(
             markers: List.generate(_locations.length, (i) {
               final loc = _locations[i];
@@ -137,6 +366,7 @@ class _MapScreenState extends State<MapScreen>
                     location: loc,
                     size: 44,
                     isSelected: _selectedIndex == i,
+                    animateDrop: _pinDropIndex == i,
                   ),
                 ),
               );

@@ -5,6 +5,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../models/mock_location.dart';
+import '../services/ai_service.dart';
 import '../theme/app_theme.dart';
 import 'home_screen.dart';
 import 'map_screen.dart';
@@ -21,6 +22,8 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> {
   int _currentIndex = 0;
   final List<MockLocation> _userPinnedLocations = [];
+  AnalyzedSpot? _previewSpot;
+  MockLocation? _previewLocation;
 
   void _goToDiscoverTab() {
     setState(() => _currentIndex = 1);
@@ -28,6 +31,29 @@ class _MainShellState extends State<MainShell> {
 
   void _addUserPinnedLocation(MockLocation location) {
     setState(() => _userPinnedLocations.add(location));
+  }
+
+  void _setPreview(AnalyzedSpot spot, MockLocation location) {
+    setState(() {
+      _previewSpot = spot;
+      _previewLocation = location;
+      _currentIndex = 1;
+    });
+  }
+
+  void _clearPreview() {
+    setState(() {
+      _previewSpot = null;
+      _previewLocation = null;
+    });
+  }
+
+  void _confirmPreview(MockLocation location) {
+    setState(() {
+      _userPinnedLocations.add(location);
+      _previewSpot = null;
+      _previewLocation = null;
+    });
   }
 
   @override
@@ -42,8 +68,17 @@ class _MainShellState extends State<MainShell> {
             goToDiscoverTab: _goToDiscoverTab,
             userPinnedLocations: _userPinnedLocations,
             onLocationPinned: _addUserPinnedLocation,
+            setPreview: _setPreview,
           ),
-          MapScreen(userPinnedLocations: _userPinnedLocations),
+          MapScreen(
+            userPinnedLocations: _userPinnedLocations,
+            previewSpot: _previewSpot,
+            previewLocation: _previewLocation,
+            onConfirmPreview: _previewLocation != null
+                ? () => _confirmPreview(_previewLocation!)
+                : null,
+            onDiscardPreview: _clearPreview,
+          ),
           const SavedScreen(),
         ],
       ),

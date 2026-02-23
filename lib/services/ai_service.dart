@@ -4,30 +4,36 @@ import 'package:http/http.dart' as http;
 
 import '../models/mock_location.dart';
 
-/// Result of AI image analysis: place name, city, and description.
+/// Result of AI image analysis: place name, city, description, and category.
 class AnalyzedSpot {
   const AnalyzedSpot({
     required this.name,
     required this.city,
     required this.description,
+    this.category,
   });
 
   final String name;
   final String city;
   final String description;
+  /// E.g. Museum, Cafe, Nature, Landmark, Restaurant.
+  final String? category;
 
   factory AnalyzedSpot.fromJson(Map<String, dynamic> json) {
     return AnalyzedSpot(
       name: (json['name'] as String?)?.trim() ?? '',
       city: (json['city'] as String?)?.trim() ?? '',
       description: (json['description'] as String?)?.trim() ?? '',
+      category: (json['category'] as String?)?.trim().isNotEmpty == true
+          ? (json['category'] as String?)?.trim()
+          : null,
     );
   }
 }
 
-/// System prompt for the travel assistant: extract place, city, description as JSON.
+/// System prompt for the travel assistant: extract place, city, description, category as JSON.
 const _systemPrompt = r'''
-You are a travel assistant. Look at this social media screenshot and extract the exact name of the place, the city, and a short 1-sentence description. If you can't find a specific place, guess based on visual cues. Return ONLY a JSON object: {"name": "...", "city": "...", "description": "..."}.
+You are a travel assistant. Look at this social media screenshot and extract the exact name of the place, the city, a short 1-sentence description, and a category (one word: e.g. Museum, Cafe, Nature, Landmark, Restaurant, Park, Beach, Hotel, Bar, Shop). If you can't find a specific place, guess based on visual cues. Return ONLY a JSON object: {"name": "...", "city": "...", "description": "...", "category": "..."}.
 ''';
 
 /// Service for Gemini image analysis and geocoding.
@@ -76,7 +82,7 @@ class AiService {
   }
 
   /// Temporary connectivity test for project/API validation.
-  /// Sends a text-only prompt ("Hi") to gemini-3.1-pro-preview.
+  /// Sends a text-only prompt ("Hi") to gemini-3-flash-preview.
   /// If this returns 404 too, the issue is likely project/API setup, not image payload.
   Future<String?> testTextOnlyConnectivity() async {
     try {
@@ -87,7 +93,7 @@ class AiService {
       }
 
       final url = Uri.parse(
-        'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro-preview:generateContent?key=$_apiKey',
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=$_apiKey',
       );
 
       final body = <String, dynamic>{
@@ -164,7 +170,7 @@ class AiService {
     required String prompt,
   }) async {
     final url = Uri.parse(
-      'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro-preview:generateContent?key=$_apiKey',
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=$_apiKey',
     );
 
     final body = <String, dynamic>{
