@@ -1,6 +1,9 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import 'providers/saved_places_provider.dart';
+import 'providers/settings_provider.dart';
 import 'screens/main_shell.dart';
 import 'theme/app_theme.dart';
 
@@ -22,11 +25,17 @@ class PinTokApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'PinTok',
-      debugShowCheckedModeBanner: false,
-      theme: AppTheme.dark,
-      home: const MainShell(),
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => SavedPlacesProvider()),
+        ChangeNotifierProvider(create: (_) => SettingsProvider()),
+      ],
+      child: MaterialApp(
+        title: 'PinTok',
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.dark,
+        home: const MainShell(),
+      ),
     );
   }
 }

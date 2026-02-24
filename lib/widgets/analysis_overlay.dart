@@ -25,14 +25,17 @@ class AnalysisOverlay extends StatefulWidget {
     super.key,
     required this.background,
     required this.runAnalysis,
+    this.imageBytes,
     required this.onPreviewReady,
     required this.onError,
   });
 
   final Widget background;
   final Future<AnalyzedSpot?> Function() runAnalysis;
-  /// Called with (spot, geocoded location) so the app can show map preview + confirmation card.
-  final void Function(AnalyzedSpot spot, MockLocation location) onPreviewReady;
+  /// Optional image bytes to pass back on preview ready (for saving to archive).
+  final List<int>? imageBytes;
+  /// Called with (spot, geocoded location, optional image bytes) so the app can show map preview + confirmation card.
+  final void Function(AnalyzedSpot spot, MockLocation location, List<int>? imageBytes) onPreviewReady;
   final VoidCallback onError;
 
   @override
@@ -87,7 +90,7 @@ class _AnalysisOverlayState extends State<AnalysisOverlay>
       setState(() => _state = AnalysisOverlayState.error);
       return;
     }
-    widget.onPreviewReady(spot, loc);
+    widget.onPreviewReady(spot, loc, widget.imageBytes);
   }
 
   void _dismissError() {
@@ -426,13 +429,15 @@ class AnalysisOverlayScreen extends StatelessWidget {
     super.key,
     this.imageProvider,
     required this.runAnalysis,
+    this.imageBytes,
     required this.onPreviewReady,
     required this.onError,
   });
 
   final ImageProvider? imageProvider;
   final Future<AnalyzedSpot?> Function() runAnalysis;
-  final void Function(AnalyzedSpot spot, MockLocation location) onPreviewReady;
+  final List<int>? imageBytes;
+  final void Function(AnalyzedSpot spot, MockLocation location, List<int>? imageBytes) onPreviewReady;
   final VoidCallback onError;
 
   @override
@@ -443,6 +448,7 @@ class AnalysisOverlayScreen extends StatelessWidget {
     return AnalysisOverlay(
       background: background,
       runAnalysis: runAnalysis,
+      imageBytes: imageBytes,
       onPreviewReady: onPreviewReady,
       onError: onError,
     );

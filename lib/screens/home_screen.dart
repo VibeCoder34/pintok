@@ -24,15 +24,13 @@ class HomeScreen extends StatelessWidget {
     super.key,
     this.goToDiscoverTab,
     this.userPinnedLocations = const [],
-    this.onLocationPinned,
     this.setPreview,
   });
 
   final VoidCallback? goToDiscoverTab;
   final List<MockLocation> userPinnedLocations;
-  final void Function(MockLocation)? onLocationPinned;
-  /// Called when analysis succeeds and we have a geocoded location for map preview.
-  final void Function(AnalyzedSpot spot, MockLocation location)? setPreview;
+  /// Called when analysis succeeds and we have a geocoded location for map preview. Optional image bytes for archive.
+  final void Function(AnalyzedSpot spot, MockLocation location, List<int>? imageBytes)? setPreview;
 
   /// Recent spots: user-pinned first, then fallback list (up to 6).
   List<({String name, String city})> get _recentSpots {
@@ -113,9 +111,8 @@ class HomeScreen extends StatelessWidget {
     if (xFile == null || !context.mounted) return;
 
     final imageFile = xFile;
-    final imageProvider = MemoryImage(
-      await imageFile.readAsBytes(),
-    );
+    final imageBytes = await imageFile.readAsBytes();
+    final imageProvider = MemoryImage(imageBytes);
     final aiService = AiService();
 
     if (!context.mounted) return;
@@ -126,10 +123,11 @@ class HomeScreen extends StatelessWidget {
         pageBuilder: (_, __, ___) => AnalysisOverlayScreen(
           imageProvider: imageProvider,
           runAnalysis: () => aiService.analyzeImage(imageFile),
-          onPreviewReady: (spot, loc) {
+          imageBytes: imageBytes,
+          onPreviewReady: (spot, loc, bytes) {
             if (!context.mounted) return;
             Navigator.of(context).pop();
-            setPreview?.call(spot, loc);
+            setPreview?.call(spot, loc, bytes);
             goToDiscoverTab?.call();
           },
           onError: () {

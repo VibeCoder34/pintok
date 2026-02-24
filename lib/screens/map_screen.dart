@@ -33,6 +33,8 @@ class MapScreen extends StatefulWidget {
     this.userPinnedLocations = const [],
     this.previewSpot,
     this.previewLocation,
+    this.focusLocation,
+    this.onFocusHandled,
     this.onConfirmPreview,
     this.onDiscardPreview,
   });
@@ -40,6 +42,9 @@ class MapScreen extends StatefulWidget {
   final List<MockLocation> userPinnedLocations;
   final AnalyzedSpot? previewSpot;
   final MockLocation? previewLocation;
+  /// When set (e.g. from Saved), fly to this location and then call [onFocusHandled].
+  final MockLocation? focusLocation;
+  final VoidCallback? onFocusHandled;
   final VoidCallback? onConfirmPreview;
   final VoidCallback? onDiscardPreview;
 
@@ -79,6 +84,11 @@ class _MapScreenState extends State<MapScreen>
     if (widget.previewLocation != null && oldWidget.previewLocation != widget.previewLocation) {
       _flyToLocation(widget.previewLocation!);
     }
+    // Fly to focus location when requested from Saved screen.
+    if (widget.focusLocation != null && widget.focusLocation != oldWidget.focusLocation) {
+      _flyToLocation(widget.focusLocation!);
+      widget.onFocusHandled?.call();
+    }
     final prevCount = oldWidget.userPinnedLocations.length;
     final newCount = widget.userPinnedLocations.length;
     if (newCount > prevCount && newCount > 0) {
@@ -89,13 +99,20 @@ class _MapScreenState extends State<MapScreen>
         _selectedIndex = index;
       });
       _flyToLocation(newLoc);
-      _carouselController.animateToPage(
-        index,
-        duration: const Duration(milliseconds: 400),
-        curve: Curves.easeOutCubic,
-      );
-      Future.delayed(const Duration(milliseconds: 900), () {
-        if (mounted) setState(() => _pinDropIndex = null);
+      // Carousel may not be in the tree yet (e.g. we were showing the "Found it!" card).
+      // Defer animateToPage to the next frame so PageController is attached.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        if (_carouselController.hasClients) {
+          _carouselController.animateToPage(
+            index,
+            duration: const Duration(milliseconds: 400),
+            curve: Curves.easeOutCubic,
+          );
+        }
+        Future.delayed(const Duration(milliseconds: 900), () {
+          if (mounted) setState(() => _pinDropIndex = null);
+        });
       });
     }
   }
