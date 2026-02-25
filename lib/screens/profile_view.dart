@@ -7,9 +7,13 @@ import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../models/collection_model.dart';
+import '../models/library_models.dart';
 import '../models/profile_data.dart';
-import '../models/profile_pin.dart';
+import '../models/pin_model.dart';
 import '../services/supabase_service.dart';
+import 'collection_detail_view.dart';
+import 'create_collection_sheet.dart';
 import '../theme/app_theme.dart';
 
 /// My Journey: profile header + tabbed My Pins (owned) / Saved (bookmarked from feed).
@@ -24,33 +28,92 @@ class _ProfileViewState extends State<ProfileView>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
   final SupabaseService _supabase = SupabaseService();
-  List<ProfilePin> _myPins = [];
-  List<ProfilePin> _savedPins = [];
+  UserProfile? _profile;
+  List<PinModel> _myPins = [];
+  List<Collection> _profileCollections = [];
   int _selectedTabIndex = 0;
   bool _loading = true;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
     _tabController.addListener(() {
       final i = _tabController.index;
       if (i != _selectedTabIndex && mounted) setState(() => _selectedTabIndex = i);
     });
-    _loadPins();
+    _loadProfileAndPins();
   }
 
-  Future<void> _loadPins() async {
+  Future<void> _loadProfileAndPins() async {
     setState(() => _loading = true);
-    final my = await _supabase.getMyPins();
-    final saved = await _supabase.getSavedPins();
+    final profileRow = await _supabase.getCurrentUserProfile();
+    final pins = await _supabase.getPins(null);
+    final collections = await _supabase.getCollections();
+    final pinsCount = await _supabase.getMyPinsCount();
+    final collectionsCount = await _supabase.getMyCollectionsCount();
+    final countByCollection = <String, int>{};
+    for (final p in pins) {
+      countByCollection[p.collectionId] = (countByCollection[p.collectionId] ?? 0) + 1;
+    }
+    final mapped = collections
+        .map(
+          (c) => Collection(
+            id: c.id,
+            name: c.name,
+            pinCount: countByCollection[c.id] ?? 0,
+            coverImageUrl: '',
+            isPrivate: false,
+          ),
+        )
+        .toList();
     if (mounted) {
       setState(() {
-        _myPins = my;
-        _savedPins = saved;
+        _profile = UserProfile(
+          username: (profileRow?['username'] as String?) ?? 'traveler',
+          bio: (profileRow?['bio'] as String?) ??
+              'No adventures written yet.',
+          avatarUrl: profileRow?['avatar_url'] as String?,
+          pinsCount: pinsCount,
+          collectionsCount: collectionsCount,
+          impactCount: 0,
+        );
+        _myPins = pins;
+        _profileCollections = mapped;
         _loading = false;
       });
     }
+  }
+
+  Future<void> _onCreateCollectionTapped() async {
+    final created = await showModalBottomSheet<CollectionModel>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => const CreateCollectionSheet(),
+    );
+    if (!mounted || created == null) return;
+    setState(() {
+      _profileCollections.insert(
+        0,
+        Collection(
+          id: created.id,
+          name: created.name,
+          pinCount: 0,
+          coverImageUrl: '',
+          isPrivate: false,
+        ),
+      );
+    });
+    await _loadProfileAndPins();
+    if (!mounted) return;
+    HapticFeedback.lightImpact();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Journey created!'),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
   void _onTabTap(int index) {
@@ -72,7 +135,16 @@ class _ProfileViewState extends State<ProfileView>
         child: NestedScrollView(
           headerSliverBuilder: (context, innerBoxIsScrolled) => [
             SliverToBoxAdapter(
-              child: _ProfileHeader(profile: mockUserProfile),
+              child: _profile == null
+                  ? const SizedBox(
+                      height: 120,
+                      child: Center(
+                        child: CircularProgressIndicator(
+                          color: AppColors.primaryAccent,
+                        ),
+                      ),
+                    )
+                  : _ProfileHeader(profile: _profile!),
             ),
             SliverToBoxAdapter(
               child: _ShareProfileButton(
@@ -99,10 +171,17 @@ class _ProfileViewState extends State<ProfileView>
             children: [
               _loading
                   ? const Center(child: CircularProgressIndicator(color: AppColors.primaryAccent))
-                  : _MyPinsTab(pins: _myPins, onRefresh: _loadPins),
+                  : _MyPinsTab(pins: _myPins, onRefresh: _loadProfileAndPins),
               _loading
                   ? const Center(child: CircularProgressIndicator(color: AppColors.primaryAccent))
-                  : _SavedTab(pins: _savedPins, onRefresh: _loadPins),
+                  : const _SavedTabEmpty(),
+              _loading
+                  ? const Center(child: CircularProgressIndicator(color: AppColors.primaryAccent))
+                  : _ProfileCollectionsTab(
+                      collections: _profileCollections,
+                      onCreateTap: _onCreateCollectionTapped,
+                      onRefresh: _loadProfileAndPins,
+                    ),
             ],
           ),
         ),
@@ -111,7 +190,7 @@ class _ProfileViewState extends State<ProfileView>
   }
 }
 
-/// Tab bar: My Pins (Pin icon) | Saved (Bookmark icon).
+/// Tab bar: My Pins | Saved | Collections.
 class _ProfileTabBar extends StatelessWidget {
   const _ProfileTabBar({
     required this.selectedIndex,
@@ -135,13 +214,22 @@ class _ProfileTabBar extends StatelessWidget {
               onTap: () => onTabTap(0),
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 8),
           Expanded(
             child: _TabChip(
               icon: LucideIcons.bookmark,
               label: 'Saved',
               isSelected: selectedIndex == 1,
               onTap: () => onTabTap(1),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _TabChip(
+              icon: LucideIcons.folderOpen,
+              label: 'Collections',
+              isSelected: selectedIndex == 2,
+              onTap: () => onTabTap(2),
             ),
           ),
         ],
@@ -213,7 +301,7 @@ class _TabChip extends StatelessWidget {
 class _MyPinsTab extends StatelessWidget {
   const _MyPinsTab({required this.pins, required this.onRefresh});
 
-  final List<ProfilePin> pins;
+  final List<PinModel> pins;
   final VoidCallback onRefresh;
 
   @override
@@ -221,8 +309,8 @@ class _MyPinsTab extends StatelessWidget {
     if (pins.isEmpty) {
       return _EmptyState(
         icon: LucideIcons.mapPin,
-        title: 'You haven\'t pinned any locations yet.',
-        subtitle: 'Tap + to start!',
+        title: 'No adventures yet.',
+        subtitle: 'Start pinning to see your journey here.',
       );
     }
     return MasonryGridView.count(
@@ -255,48 +343,197 @@ class _MyPinsTab extends StatelessWidget {
   }
 }
 
-/// Saved tab: grid with "Saved from @creator". Empty state: Explore the feed.
-class _SavedTab extends StatelessWidget {
-  const _SavedTab({required this.pins, required this.onRefresh});
+/// Placeholder for Saved tab until real "saved pins" wiring is implemented.
+class _SavedTabEmpty extends StatelessWidget {
+  const _SavedTabEmpty();
 
-  final List<ProfilePin> pins;
+  @override
+  Widget build(BuildContext context) {
+    return _EmptyState(
+      icon: LucideIcons.bookmark,
+      title: 'No saved inspirations yet.',
+      subtitle: 'Explore the feed to find your next journey!',
+    );
+  }
+}
+
+/// Collections tab: create card + grid of collections (open to detail, where pins can be saved).
+class _ProfileCollectionsTab extends StatelessWidget {
+  const _ProfileCollectionsTab({
+    required this.collections,
+    required this.onCreateTap,
+    required this.onRefresh,
+  });
+
+  final List<Collection> collections;
+  final VoidCallback onCreateTap;
   final VoidCallback onRefresh;
 
   @override
   Widget build(BuildContext context) {
-    if (pins.isEmpty) {
-      return _EmptyState(
-        icon: LucideIcons.bookmark,
-        title: 'No saved inspirations yet.',
-        subtitle: 'Explore the feed to find your next journey!',
-      );
-    }
-    return MasonryGridView.count(
-      crossAxisCount: 2,
-      mainAxisSpacing: 12,
-      crossAxisSpacing: 12,
+    return GridView.builder(
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 100),
-      itemCount: pins.length,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        mainAxisSpacing: 14,
+        crossAxisSpacing: 14,
+        childAspectRatio: 3 / 4,
+      ),
+      itemCount: collections.isEmpty ? 1 : collections.length + 1,
       itemBuilder: (context, index) {
-        final pin = pins[index];
-        final height = 200.0 + (index % 3) * 24.0;
-        return SizedBox(
-          height: height,
-          child: _PinCard(
-            pin: pin,
-            showCreator: true,
-          ),
-        )
-            .animate()
-            .fadeIn(duration: 280.ms, delay: (50 * index).ms)
-            .scale(
-              begin: const Offset(0.95, 0.95),
-              end: const Offset(1, 1),
-              duration: 320.ms,
-              delay: (50 * index).ms,
-              curve: Curves.easeOutCubic,
-            );
+        if (index == 0) {
+          return _ProfileCreateCollectionCard(onTap: onCreateTap);
+        }
+        final collection = collections[index - 1];
+        return _ProfileCollectionCard(
+          collection: collection,
+          onTap: () {
+            Navigator.of(context).push<Map<String, dynamic>>(
+              MaterialPageRoute(
+                builder: (_) => CollectionDetailView(collection: collection),
+              ),
+            ).then((result) {
+              if (result != null && (result['deleted'] == true || result['updated'] != null)) {
+                onRefresh();
+              }
+            });
+          },
+        );
       },
+    );
+  }
+}
+
+class _ProfileCreateCollectionCard extends StatelessWidget {
+  const _ProfileCreateCollectionCard({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(22),
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(22),
+            color: Colors.white.withValues(alpha: 0.06),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.2),
+              width: 1,
+            ),
+          ),
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  LucideIcons.plus,
+                  size: 32,
+                  color: AppColors.primaryAccent,
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  'New Journey',
+                  style: GoogleFonts.inter(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ProfileCollectionCard extends StatelessWidget {
+  const _ProfileCollectionCard({
+    required this.collection,
+    required this.onTap,
+  });
+
+  final Collection collection;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(22),
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(22),
+            color: Colors.white.withValues(alpha: 0.06),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.2),
+              width: 1,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(21)),
+                  child: collection.coverImageUrl.isNotEmpty
+                      ? Image.network(
+                          collection.coverImageUrl,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => _placeholderCover(),
+                        )
+                      : _placeholderCover(),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      collection.name,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.inter(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${collection.pinCount} Pins',
+                      style: GoogleFonts.inter(
+                        fontSize: 12,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _placeholderCover() {
+    return Container(
+      color: AppColors.primaryAccent.withValues(alpha: 0.2),
+      child: Icon(
+        LucideIcons.mapPin,
+        size: 40,
+        color: AppColors.primaryAccent.withValues(alpha: 0.6),
+      ),
     );
   }
 }
@@ -308,7 +545,7 @@ class _PinCard extends StatelessWidget {
     required this.showCreator,
   });
 
-  final ProfilePin pin;
+  final PinModel pin;
   final bool showCreator;
 
   @override
@@ -330,7 +567,7 @@ class _PinCard extends StatelessWidget {
           fit: StackFit.expand,
           children: [
             Image.network(
-              pin.imageUrl,
+              pin.imageUrl ?? '',
               fit: BoxFit.cover,
               errorBuilder: (_, __, ___) => Container(
                 color: AppColors.surfaceDark,
@@ -354,21 +591,8 @@ class _PinCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    if (showCreator && pin.creatorUsername != null) ...[
-                      Text(
-                        'Saved from @${pin.creatorUsername}',
-                        style: GoogleFonts.inter(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w500,
-                          color: Colors.white70,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 4),
-                    ],
                     Text(
-                      pin.name,
+                      pin.title,
                       style: GoogleFonts.inter(
                         fontSize: 15,
                         fontWeight: FontWeight.w700,
@@ -379,7 +603,7 @@ class _PinCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      pin.locationLabel,
+                      (pin.metadata?['city'] as String?) ?? '',
                       style: TextStyle(
                         fontSize: 12,
                         color: Colors.white.withValues(alpha: 0.9),

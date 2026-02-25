@@ -8,6 +8,8 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/settings_provider.dart';
+import '../services/auth_service.dart';
+import '../services/supabase_service.dart';
 import '../theme/app_theme.dart';
 import 'edit_profile_screen.dart';
 
@@ -23,15 +25,25 @@ class SettingsView extends StatelessWidget {
       body: SafeArea(
         child: CustomScrollView(
           slivers: [
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-                child: Text(
-                  'Settings',
-                  style: GoogleFonts.inter(
-                    fontSize: 28,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.textPrimary,
+            SliverAppBar(
+              pinned: true,
+              backgroundColor: Colors.transparent,
+              elevation: 0,
+              automaticallyImplyLeading: true,
+              title: Text(
+                'Settings',
+                style: GoogleFonts.inter(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              centerTitle: false,
+              flexibleSpace: ClipRect(
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                  child: Container(
+                    color: Colors.black.withValues(alpha: 0.4),
                   ),
                 ),
               ),
@@ -45,22 +57,28 @@ class SettingsView extends StatelessWidget {
                     children: [
                       _SettingsTile(
                         icon: LucideIcons.userPen,
-                        title: 'Edit Profile',
+                        title: 'Personal Information',
                         onTap: () => _openEditProfile(context),
                       ),
                       _SettingsTile(
                         icon: LucideIcons.mail,
-                        title: 'Email & Password',
-                        onTap: () => _showComingSoon(context, 'Email & Password'),
+                        title: 'Security',
+                        onTap: () => _showComingSoon(context, 'Security'),
                       ),
                     ],
                   ),
                   const SizedBox(height: 24),
-                  _SectionHeader(title: 'Preferences'),
+                  _SectionHeader(title: 'Preferences (Travel Focus)'),
                   _GlassSection(
                     children: [
                       _ThemeModeTile(),
                       _DistanceUnitTile(),
+                      _SettingsTile(
+                        icon: Icons.language,
+                        title: 'Language',
+                        subtitle: 'English',
+                        onTap: () => _showComingSoon(context, 'Language'),
+                      ),
                       _HapticFeedbackTile(),
                     ],
                   ),
@@ -82,16 +100,33 @@ class SettingsView extends StatelessWidget {
                   _GlassSection(
                     children: [
                       _NotifTile(
-                        title: 'New Pins from Friends',
+                        title: 'Push Notifications',
                         valueKey: 'newPins',
                       ),
                       _NotifTile(
-                        title: 'Someone Saved My Pin',
-                        valueKey: 'savedMyPin',
-                      ),
-                      _NotifTile(
-                        title: 'Trending Places Nearby',
+                        title: 'Alerts for Nearby Gems',
                         valueKey: 'trending',
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+                  _SectionHeader(title: 'Support & Legal'),
+                  _GlassSection(
+                    children: [
+                      _SettingsTile(
+                        icon: Icons.help_outline,
+                        title: 'Help Center',
+                        onTap: () => _showComingSoon(context, 'Help Center'),
+                      ),
+                      _SettingsTile(
+                        icon: Icons.description_outlined,
+                        title: 'Terms of Service',
+                        onTap: () => _showComingSoon(context, 'Terms of Service'),
+                      ),
+                      _SettingsTile(
+                        icon: Icons.privacy_tip_outlined,
+                        title: 'Privacy Policy',
+                        onTap: () => _showComingSoon(context, 'Privacy Policy'),
                       ),
                     ],
                   ),
@@ -130,7 +165,17 @@ class SettingsView extends StatelessWidget {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 100),
+                  const SizedBox(height: 24),
+                  Center(
+                    child: Text(
+                      'Version 1.0.0',
+                      style: GoogleFonts.inter(
+                        fontSize: 12,
+                        color: AppColors.textSecondary.withValues(alpha: 0.9),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 60),
                 ]),
               ),
             ),
@@ -223,14 +268,17 @@ class SettingsView extends StatelessWidget {
             child: const Text('Cancel'),
           ),
           TextButton(
-            onPressed: () {
+            onPressed: () async {
               Navigator.of(ctx).pop();
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Logged out'),
-                  behavior: SnackBarBehavior.floating,
-                ),
-              );
+              await AuthService.instance.signOut();
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Logged out'),
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              }
             },
             child: Text(
               'Log Out',
@@ -250,27 +298,40 @@ class SettingsView extends StatelessWidget {
         backgroundColor: AppColors.surfaceDark,
         title: const Text('Delete Account'),
         content: const Text(
-          'Permanently delete your account and all data? This cannot be undone.',
+          'This will permanently delete all your pins, collections, and profile data. You will be signed out. This cannot be undone.\n\nAre you sure?',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
             child: const Text('Cancel'),
           ),
-          TextButton(
-            onPressed: () {
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () async {
               Navigator.of(ctx).pop();
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Account deletion requested'),
-                  behavior: SnackBarBehavior.floating,
-                ),
-              );
+              try {
+                await SupabaseService().deleteUserData();
+                await AuthService.instance.signOut();
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Account data deleted. You have been signed out.'),
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Failed to delete account: $e'),
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                }
+              }
             },
-            child: Text(
-              'Delete',
-              style: TextStyle(color: AppColors.secondaryAccent, fontWeight: FontWeight.w700),
-            ),
+            child: const Text('Delete account'),
           ),
         ],
       ),
@@ -581,7 +642,7 @@ class _PublicProfileTile extends StatelessWidget {
     return ListTile(
       leading: Icon(LucideIcons.globe, size: 22, color: AppColors.textSecondary),
       title: Text(
-        'Public Profile',
+        'Discoverability',
         style: GoogleFonts.inter(
           fontSize: 16,
           fontWeight: FontWeight.w600,
@@ -589,7 +650,7 @@ class _PublicProfileTile extends StatelessWidget {
         ),
       ),
       subtitle: Text(
-        'When off, only friends can see your collections',
+        'Allow others to find my profile',
         style: GoogleFonts.inter(
           fontSize: 13,
           color: AppColors.textSecondary,
@@ -620,7 +681,7 @@ class _MapVisibilityTile extends StatelessWidget {
       onTap: () => _showMapVisibilityPicker(context, settings),
       leading: Icon(LucideIcons.mapPin, size: 22, color: AppColors.textSecondary),
       title: Text(
-        'Map Visibility',
+        'Default Collection Privacy',
         style: GoogleFonts.inter(
           fontSize: 16,
           fontWeight: FontWeight.w600,
@@ -628,7 +689,7 @@ class _MapVisibilityTile extends StatelessWidget {
         ),
       ),
       subtitle: Text(
-        settings.mapVisibilityLabel,
+        'Choose whether new collections are Private or Public by default',
         style: GoogleFonts.inter(
           fontSize: 13,
           color: AppColors.textSecondary,
@@ -666,7 +727,7 @@ class _MapVisibilityTile extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                'Who can see your live-pinned locations?',
+                'Default Collection Privacy',
                 style: GoogleFonts.inter(
                   fontSize: 16,
                   fontWeight: FontWeight.w600,
@@ -676,10 +737,10 @@ class _MapVisibilityTile extends StatelessWidget {
               const SizedBox(height: 16),
               ...MapVisibility.values.map((v) {
                 final label = v == MapVisibility.everyone
-                    ? 'Everyone'
+                    ? 'Public'
                     : v == MapVisibility.friends
                         ? 'Friends only'
-                        : 'Nobody';
+                        : 'Private';
                 return ListTile(
                   title: Text(label, style: GoogleFonts.inter(color: AppColors.textPrimary)),
                   trailing: settings.mapVisibility == v

@@ -5,9 +5,10 @@ import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../services/supabase_service.dart';
 import '../theme/app_theme.dart';
 
-/// Sub-page to edit Username, Bio, and Avatar. Glassmorphism style.
+/// Sub-page to edit Display Name, Bio (and optional Username). Saves via Supabase.
 class EditProfileScreen extends StatefulWidget {
   const EditProfileScreen({super.key});
 
@@ -16,15 +17,31 @@ class EditProfileScreen extends StatefulWidget {
 }
 
 class _EditProfileScreenState extends State<EditProfileScreen> {
-  final _usernameController = TextEditingController(text: 'Traveler');
-  final _bioController = TextEditingController(text: 'Pinning the world one photo at a time.');
+  final _displayNameController = TextEditingController();
+  final _bioController = TextEditingController();
+  final _usernameController = TextEditingController();
+  final SupabaseService _supabase = SupabaseService();
   bool _hasChanges = false;
+  bool _loading = true;
 
   @override
   void initState() {
     super.initState();
-    _usernameController.addListener(_markChanges);
+    _displayNameController.addListener(_markChanges);
     _bioController.addListener(_markChanges);
+    _usernameController.addListener(_markChanges);
+    _loadProfile();
+  }
+
+  Future<void> _loadProfile() async {
+    final profile = await _supabase.getCurrentUserProfile();
+    if (!mounted) return;
+    setState(() {
+      _displayNameController.text = (profile?['full_name'] as String?)?.trim() ?? '';
+      _bioController.text = (profile?['bio'] as String?)?.trim() ?? '';
+      _usernameController.text = (profile?['username'] as String?)?.trim() ?? '';
+      _loading = false;
+    });
   }
 
   void _markChanges() {
@@ -33,9 +50,30 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
   @override
   void dispose() {
-    _usernameController.dispose();
+    _displayNameController.dispose();
     _bioController.dispose();
+    _usernameController.dispose();
     super.dispose();
+  }
+
+  Future<void> _save() async {
+    final fullName = _displayNameController.text.trim();
+    final bio = _bioController.text.trim();
+    final username = _usernameController.text.trim().isEmpty ? null : _usernameController.text.trim();
+    try {
+      await _supabase.updateProfile(fullName, bio, username: username);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Profile saved'), behavior: SnackBarBehavior.floating),
+      );
+      Navigator.of(context).pop();
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to save profile'), behavior: SnackBarBehavior.floating),
+        );
+      }
+    }
   }
 
   @override
@@ -58,17 +96,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           ),
         ),
         actions: [
-          if (_hasChanges)
+          if (_hasChanges && !_loading)
             TextButton(
               onPressed: () {
                 HapticFeedback.mediumImpact();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Profile saved'),
-                    behavior: SnackBarBehavior.floating,
-                  ),
-                );
-                Navigator.of(context).pop();
+                _save();
               },
               child: Text(
                 'Save',
@@ -80,44 +112,53 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             ),
         ],
       ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(20, 24, 20, 40),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Center(
-                child: _AvatarPicker(
-                  onTap: () {
-                    HapticFeedback.selectionClick();
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Avatar picker — coming soon'),
-                        behavior: SnackBarBehavior.floating,
+      body: _loading
+          ? const Center(child: CircularProgressIndicator(color: AppColors.primaryAccent))
+          : SafeArea(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(20, 24, 20, 40),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Center(
+                      child: _AvatarPicker(
+                        onTap: () {
+                          HapticFeedback.selectionClick();
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Avatar picker — coming soon'),
+                              behavior: SnackBarBehavior.floating,
+                            ),
+                          );
+                        },
                       ),
-                    );
-                  },
+                    ),
+                    const SizedBox(height: 32),
+                    _GlassField(
+                      label: 'Display Name',
+                      controller: _displayNameController,
+                      hint: 'Your display name',
+                      icon: LucideIcons.user,
+                    ),
+                    const SizedBox(height: 16),
+                    _GlassField(
+                      label: 'Bio',
+                      controller: _bioController,
+                      hint: 'Tell us a bit about yourself',
+                      icon: LucideIcons.penLine,
+                      maxLines: 3,
+                    ),
+                    const SizedBox(height: 16),
+                    _GlassField(
+                      label: 'Username (optional)',
+                      controller: _usernameController,
+                      hint: 'Username without @',
+                      icon: LucideIcons.atSign,
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 32),
-              _GlassField(
-                label: 'Username',
-                controller: _usernameController,
-                hint: 'Your display name',
-                icon: LucideIcons.atSign,
-              ),
-              const SizedBox(height: 16),
-              _GlassField(
-                label: 'Bio',
-                controller: _bioController,
-                hint: 'Tell us a bit about yourself',
-                icon: LucideIcons.penLine,
-                maxLines: 3,
-              ),
-            ],
-          ),
-        ),
-      ),
+            ),
     );
   }
 }

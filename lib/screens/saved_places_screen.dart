@@ -11,6 +11,7 @@ import '../models/mock_location.dart';
 import '../models/saved_place.dart';
 import '../providers/saved_places_provider.dart';
 import '../theme/app_theme.dart';
+import 'settings_view.dart';
 
 /// Saved Places archive: grid of cards, search, slide-to-delete, detail modal.
 class SavedPlacesScreen extends StatefulWidget {
@@ -73,6 +74,38 @@ class _SavedPlacesScreenState extends State<SavedPlacesScreen> {
       body: SafeArea(
         child: Column(
           children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 6),
+              child: Row(
+                children: [
+                  Text(
+                    'My Journey',
+                    style: GoogleFonts.inter(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    icon: const Icon(
+                      LucideIcons.settings,
+                      size: 20,
+                      color: AppColors.textSecondary,
+                    ),
+                    onPressed: () {
+                      HapticFeedback.selectionClick();
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => const SettingsView(),
+                        ),
+                      );
+                    },
+                    tooltip: 'Settings',
+                  ),
+                ],
+              ),
+            ),
             _GlassSearchHeader(
               controller: _searchController,
               focusNode: _searchFocusNode,
