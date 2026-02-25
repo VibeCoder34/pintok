@@ -8,7 +8,7 @@ class AppColors {
   AppColors._();
 
   static const Color background = Color(0xFF0A0A0A);
-  static const Color primaryAccent = Color(0xFF007AFF);
+  static const Color primaryAccent = Color(0xFFF05130);
   static const Color secondaryAccent = Color(0xFFFF0050);
 
   static const Color surfaceDark = Color(0xFF121212);
@@ -35,17 +35,19 @@ class AppTheme {
         displayColor: AppColors.textPrimary,
       );
     }
+    final colorScheme = ColorScheme.fromSeed(
+      seedColor: AppColors.primaryAccent,
+      brightness: Brightness.dark,
+      background: AppColors.background,
+      surface: AppColors.surfaceDark,
+    );
+
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.dark,
       scaffoldBackgroundColor: AppColors.background,
-      colorScheme: const ColorScheme.dark(
-        primary: AppColors.primaryAccent,
-        secondary: AppColors.secondaryAccent,
-        surface: AppColors.surfaceDark,
-        onSurface: AppColors.textPrimary,
-        onSurfaceVariant: AppColors.textSecondary,
-      ),
+      colorScheme: colorScheme,
+      primaryColor: AppColors.primaryAccent,
       textTheme: textTheme,
       appBarTheme: AppBarTheme(
         backgroundColor: Colors.transparent,

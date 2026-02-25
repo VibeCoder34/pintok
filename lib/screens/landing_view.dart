@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../theme/app_theme.dart';
 
 /// High-impact hero landing screen.
 /// First thing users see before onboarding / auth.
@@ -95,46 +96,46 @@ class _LandingViewState extends State<LandingView>
     );
   }
 
-  static const _logoAsset = 'assets/onboarding/pintoklogo.png';
+  static const _logoAsset = 'assets/onboarding/pintoklogonobackground.png';
 
   Widget _buildCenterBranding(Size size) {
-    return SizedBox(
-      width: size.width * 0.8,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          // Glowing pulse behind logo.
-          AnimatedBuilder(
-            animation: _pulseController,
-            builder: (context, child) {
-              final t = _pulseController.value;
-              final scale = 1.0 + 0.08 * (1 - (t - 0.5).abs() * 2);
-              final opacity = 0.25 + 0.25 * (1 - (t - 0.5).abs() * 2);
-              return Transform.scale(
-                scale: scale,
-                child: Container(
-                  width: 220,
-                  height: 220,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.white.withValues(alpha: opacity),
-                        blurRadius: 80,
-                        spreadRadius: 6,
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            },
-          ),
-          Column(
-            mainAxisSize: MainAxisSize.min,
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          width: size.width * 0.8,
+          child: Stack(
+            alignment: Alignment.center,
             children: [
+              // Glowing pulse behind logo.
+              AnimatedBuilder(
+                animation: _pulseController,
+                builder: (context, child) {
+                  final t = _pulseController.value;
+                  final scale = 1.0 + 0.08 * (1 - (t - 0.5).abs() * 2);
+                  final opacity = 0.25 + 0.25 * (1 - (t - 0.5).abs() * 2);
+                  return Transform.scale(
+                    scale: scale,
+                    child: Container(
+                      width: 260,
+                      height: 260,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.white.withValues(alpha: opacity),
+                            blurRadius: 90,
+                            spreadRadius: 8,
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
               Image.asset(
                 _logoAsset,
-                width: 200,
+                width: 260,
                 fit: BoxFit.contain,
                 errorBuilder: (_, __, ___) => Text(
                   'PinTok',
@@ -146,20 +147,47 @@ class _LandingViewState extends State<LandingView>
                   ),
                 ),
               ),
-              const SizedBox(height: 14),
-              Text(
-                'Turn your inspiration into adventures.',
-                textAlign: TextAlign.center,
-                style: GoogleFonts.inter(
-                  fontSize: 15,
+            ],
+          ),
+        ),
+        const SizedBox(height: 40),
+        Text(
+          'TURN SCREENSHOTS INTO JOURNEYS',
+          textAlign: TextAlign.center,
+          style: GoogleFonts.inter(
+            fontSize: 20,
+            fontWeight: FontWeight.w700,
+            color: Colors.white.withValues(alpha: 0.96),
+            letterSpacing: 3,
+          ),
+        ),
+        const SizedBox(height: 10),
+        RichText(
+          textAlign: TextAlign.center,
+          text: TextSpan(
+            style: GoogleFonts.inter(
+              fontSize: 15,
+              height: 1.4,
+            ),
+            children: [
+              TextSpan(
+                text: 'Save every place you love, ',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.86),
                   fontWeight: FontWeight.w500,
-                  color: Colors.white.withValues(alpha: 0.9),
+                ),
+              ),
+              TextSpan(
+                text: 'let AI find the way.',
+                style: TextStyle(
+                  color: const Color(0xFFF05130),
+                  fontWeight: FontWeight.w600,
                 ),
               ),
             ],
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
@@ -186,15 +214,15 @@ class _LandingViewState extends State<LandingView>
               width: double.infinity,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(26),
-                color: Colors.white.withValues(alpha: 0.10),
+                color: AppColors.primaryAccent.withValues(alpha: 0.22),
                 border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.45),
+                  color: AppColors.primaryAccent.withValues(alpha: 0.9),
                   width: 1.4,
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.45),
-                    blurRadius: 18,
+                    color: AppColors.primaryAccent.withValues(alpha: 0.7),
+                    blurRadius: 22,
                     offset: const Offset(0, 10),
                   ),
                 ],

@@ -199,7 +199,7 @@ class _AuthViewState extends State<AuthView> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Image.asset(
-          'assets/onboarding/pintoklogo.png',
+          'assets/onboarding/pintoklogonobackground.png',
           height: 56,
           fit: BoxFit.contain,
           errorBuilder: (_, __, ___) => Row(
@@ -382,21 +382,21 @@ class _AuthViewState extends State<AuthView> {
             borderRadius: BorderRadius.circular(18),
           ),
           elevation: 10,
-          shadowColor: const Color(0xFF2196F3).withValues(alpha: 0.6),
+          shadowColor: AppColors.primaryAccent.withValues(alpha: 0.6),
           backgroundColor: Colors.transparent,
           foregroundColor: Colors.white,
         ),
         child: Ink(
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.bottomLeft,
               end: Alignment.topRight,
               colors: [
-                Color(0xFF2196F3),
-                Color(0xFF7C4DFF),
+                AppColors.primaryAccent.withValues(alpha: 0.9),
+                AppColors.primaryAccent,
               ],
             ),
-            borderRadius: BorderRadius.all(Radius.circular(18)),
+            borderRadius: const BorderRadius.all(Radius.circular(18)),
           ),
           child: Center(
             child: Text(

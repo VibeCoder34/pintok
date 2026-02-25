@@ -227,6 +227,56 @@ class SupabaseService {
     return (response as List).length;
   }
 
+  /// Returns a map of collectionId -> number of pins in that collection
+  /// for the current user. Collections with zero pins will not appear in
+  /// the map.
+  Future<Map<String, int>> getPinCountsByCollection() async {
+    final uid = _currentUserId;
+    if (uid == null) return <String, int>{};
+
+    final response = await _client
+        .from('pins')
+        .select('collection_id')
+        .eq('user_id', uid);
+
+    final rows = List<Map<String, dynamic>>.from(response as List);
+    final Map<String, int> counts = {};
+    for (final row in rows) {
+      final collectionId = row['collection_id'] as String?;
+      if (collectionId == null) continue;
+      counts[collectionId] = (counts[collectionId] ?? 0) + 1;
+    }
+    return counts;
+  }
+
+  /// Returns a map of collectionId -> first pin imageUrl (by created_at ASC)
+  /// for the current user. Only pins with a non-empty image_url are used.
+  Future<Map<String, String>> getFirstPinImageByCollection() async {
+    final uid = _currentUserId;
+    if (uid == null) return <String, String>{};
+
+    final response = await _client
+        .from('pins')
+        .select('collection_id,image_url,created_at')
+        .eq('user_id', uid)
+        .order('created_at', ascending: true);
+
+    final rows = List<Map<String, dynamic>>.from(response as List);
+    final Map<String, String> coverImages = {};
+
+    for (final row in rows) {
+      final collectionId = row['collection_id'] as String?;
+      final imageUrl = row['image_url'] as String?;
+      if (collectionId == null || imageUrl == null || imageUrl.isEmpty) {
+        continue;
+      }
+      // Only take the first image per collection (oldest pin wins).
+      coverImages.putIfAbsent(collectionId, () => imageUrl);
+    }
+
+    return coverImages;
+  }
+
   /// Returns the total count of rows in the collections table for the current user.
   Future<int> getMyCollectionsCount() async {
     final uid = _currentUserId;

@@ -70,6 +70,7 @@ class _MapScreenState extends State<MapScreen>
   int? _pinDropIndex;
   String? _activeCollectionId;
   String? _selectedPinId;
+  String? _lastFocusedCollectionId;
 
   final SupabaseService _supabase = SupabaseService();
   Future<List<PinModel>>? _pinsFuture;
@@ -150,6 +151,33 @@ class _MapScreenState extends State<MapScreen>
     _mapController.animateTo(
       dest: _parisCenter,
       zoom: _defaultZoom,
+      duration: _flyToDuration,
+      curve: Curves.easeInOutCubic,
+      cancelPreviousAnimations: true,
+    );
+  }
+
+  void _focusOnPinModels(List<PinModel> pins) {
+    if (pins.isEmpty) return;
+    if (pins.length == 1) {
+      final p = pins.first;
+      _mapController.animateTo(
+        dest: LatLng(p.latitude, p.longitude),
+        zoom: _flyToZoom,
+        duration: _flyToDuration,
+        curve: Curves.easeInOutCubic,
+        cancelPreviousAnimations: true,
+      );
+      return;
+    }
+
+    // For multiple pins, center roughly between them and zoom out a bit
+    // so that all are likely visible.
+    final avgLat = pins.map((p) => p.latitude).reduce((a, b) => a + b) / pins.length;
+    final avgLng = pins.map((p) => p.longitude).reduce((a, b) => a + b) / pins.length;
+    _mapController.animateTo(
+      dest: LatLng(avgLat, avgLng),
+      zoom: _defaultZoom - 1.5,
       duration: _flyToDuration,
       curve: Curves.easeInOutCubic,
       cancelPreviousAnimations: true,
@@ -310,12 +338,12 @@ class _MapScreenState extends State<MapScreen>
                             child: Container(
                               decoration: BoxDecoration(
                                 borderRadius: BorderRadius.circular(16),
-                                gradient: const LinearGradient(
+                                gradient: LinearGradient(
                                   begin: Alignment.topLeft,
                                   end: Alignment.bottomRight,
                                   colors: [
-                                    Color(0xFF2196F3),
-                                    Color(0xFF5E35B1),
+                                    AppColors.primaryAccent,
+                                    AppColors.primaryAccent.withValues(alpha: 0.85),
                                   ],
                                 ),
                                 boxShadow: [
@@ -457,10 +485,10 @@ class _MapScreenState extends State<MapScreen>
                         width: 1,
                       ),
                     ),
-                    child: const Icon(
+                    child: Icon(
                       Icons.check_circle,
                       size: 56,
-                      color: Colors.white,
+                      color: AppColors.primaryAccent,
                     ),
                   ),
                 ),
@@ -542,6 +570,17 @@ class _MapScreenState extends State<MapScreen>
                 return const SizedBox.shrink();
               }
               final pins = snapshot.data!;
+              if (_activeCollectionId != null &&
+                  _activeCollectionId != _lastFocusedCollectionId &&
+                  pins.isNotEmpty) {
+                // After changing the collection filter, automatically focus
+                // the map on the pins for that collection.
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (!mounted) return;
+                  _focusOnPinModels(pins);
+                });
+                _lastFocusedCollectionId = _activeCollectionId;
+              }
               return MarkerLayer(
                 markers: pins.map((pin) {
                   final loc = MockLocation(
@@ -690,9 +729,13 @@ class _FilterChipPill extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(999),
-              color: Colors.black.withValues(alpha: selected ? 0.55 : 0.35),
+              color: selected
+                  ? AppColors.primaryAccent
+                  : Colors.black.withValues(alpha: 0.35),
               border: Border.all(
-                color: Colors.white.withValues(alpha: selected ? 0.6 : 0.3),
+                color: selected
+                    ? AppColors.primaryAccent.withValues(alpha: 0.9)
+                    : Colors.white.withValues(alpha: 0.3),
                 width: 1,
               ),
             ),

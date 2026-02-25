@@ -147,7 +147,7 @@ class _OnboardingViewState extends State<OnboardingView> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Image.asset(
-                      'assets/onboarding/pintoklogo.png',
+                      'assets/onboarding/pintoklogonobackground.png',
                       height: 36,
                       fit: BoxFit.contain,
                       errorBuilder: (_, __, ___) => Text(
@@ -198,13 +198,13 @@ class _OnboardingViewState extends State<OnboardingView> {
                       child: FilledButton(
                         onPressed: _next,
                         style: FilledButton.styleFrom(
-                          backgroundColor: Colors.white.withValues(alpha: 0.12),
+                          backgroundColor: AppColors.primaryAccent,
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 16),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(24),
                             side: BorderSide(
-                              color: Colors.white.withValues(alpha: 0.25),
+                              color: AppColors.primaryAccent.withValues(alpha: 0.9),
                               width: 1,
                             ),
                           ),

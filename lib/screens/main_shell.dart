@@ -343,7 +343,7 @@ class _FloatingNavBar extends StatelessWidget {
                             LucideIcons.compass,
                             size: 26,
                             color: currentIndex == 0
-                                ? Colors.white
+                                ? AppColors.primaryAccent
                                 : Colors.white54,
                           ),
                           splashRadius: 26,
@@ -357,7 +357,7 @@ class _FloatingNavBar extends StatelessWidget {
                             LucideIcons.user,
                             size: 26,
                             color: currentIndex == 1
-                                ? Colors.white
+                                ? AppColors.primaryAccent
                                 : Colors.white54,
                           ),
                           splashRadius: 26,
@@ -389,8 +389,8 @@ class _AINucleusButton extends StatefulWidget {
 class _AINucleusButtonState extends State<_AINucleusButton> {
   bool _pressed = false;
 
-  static const _gradientStart = Color(0xFF5E35B1); // Deep purple
-  static const _gradientEnd = Color(0xFF2196F3);   // Electric blue
+  static const _gradientStart = AppColors.primaryAccent; // Brand orange
+  static const _gradientEnd = Color(0xFFF8724E);         // Lighter brand tint
 
   void _onTapDown(TapDownDetails _) => setState(() => _pressed = true);
   void _onTapUp(TapUpDetails _) => setState(() => _pressed = false);

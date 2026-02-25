@@ -408,15 +408,14 @@ class _MiniMapHeader extends StatelessWidget {
                   .map(
                     (p) => Marker(
                       point: LatLng(p.latitude, p.longitude),
-                      width: 40,
-                      height: 40,
+                      width: 44,
+                      height: 44,
                       alignment: Alignment.center,
                       child: Container(
-                        width: 18,
-                        height: 18,
+                        width: 32,
+                        height: 32,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: AppColors.primaryAccent,
                           boxShadow: [
                             BoxShadow(
                               color:
@@ -425,6 +424,25 @@ class _MiniMapHeader extends StatelessWidget {
                               spreadRadius: 2,
                             ),
                           ],
+                          border: Border.all(
+                            color: Colors.white.withOpacity(0.9),
+                            width: 2,
+                          ),
+                        ),
+                        child: ClipOval(
+                          child: p.imageUrl.isNotEmpty
+                              ? Image.network(
+                                  p.imageUrl,
+                                  fit: BoxFit.cover,
+                                )
+                              : Container(
+                                  color: AppColors.primaryAccent,
+                                  child: const Icon(
+                                    Icons.place_rounded,
+                                    color: Colors.white,
+                                    size: 18,
+                                  ),
+                                ),
                         ),
                       ),
                     ),

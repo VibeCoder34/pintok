@@ -85,15 +85,19 @@ class _LibraryViewState extends State<LibraryView> {
     setState(() => _loading = true);
     try {
       final rows = await _supabase.getCollections();
-      // Map backend collections to UI model. Pin counts / privacy are not yet
-      // stored in the database, so we default them.
+      final pinCounts = await _supabase.getPinCountsByCollection();
+      final coverImages = await _supabase.getFirstPinImageByCollection();
+      // Map backend collections to UI model. Privacy flags are not yet
+      // stored in the database (we default them), but pinCount is computed
+      // from the pins table so the "x Pins" label stays accurate and
+      // coverImageUrl falls back to the first pin's image if any.
       final mapped = rows
           .map(
             (c) => Collection(
               id: c.id,
               name: c.name,
-              pinCount: 0,
-              coverImageUrl: '',
+              pinCount: pinCounts[c.id] ?? 0,
+              coverImageUrl: coverImages[c.id] ?? '',
               isPrivate: false,
             ),
           )
