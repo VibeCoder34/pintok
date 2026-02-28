@@ -7,14 +7,15 @@ class Collection {
     required this.name,
     required this.coverImageUrl,
     required this.pinCount,
-    this.isPrivate = false,
+    this.coverColor,
   });
 
   final String id;
   final String name;
   final String coverImageUrl;
   final int pinCount;
-  final bool isPrivate;
+  /// Hex color (e.g. "5E35B1") for card background when no cover image.
+  final String? coverColor;
 }
 
 @immutable
@@ -48,25 +49,22 @@ const mockCollections = <Collection>[
     id: 'c1',
     name: 'Paris 2026',
     pinCount: 4,
-    isPrivate: false,
     coverImageUrl:
-        'https://images.unsplash.com/photo-1543340713-1bf75c5fafa8?auto=format&fit=crop&w=1200&q=80', // Eiffel Tower
+        'https://images.unsplash.com/photo-1543340713-1bf75c5fafa8?auto=format&fit=crop&w=1200&q=80',
   ),
   Collection(
     id: 'c2',
     name: 'Best Coffee Spots',
     pinCount: 12,
-    isPrivate: true,
     coverImageUrl:
-        'https://images.unsplash.com/photo-1509042239860-f550ce710b93?auto=format&fit=crop&w=1200&q=80', // Latte art
+        'https://images.unsplash.com/photo-1509042239860-f550ce710b93?auto=format&fit=crop&w=1200&q=80',
   ),
   Collection(
     id: 'c3',
     name: 'Hidden Gems Istanbul',
     pinCount: 7,
-    isPrivate: false,
     coverImageUrl:
-        'https://images.unsplash.com/photo-1580492495332-65f4chealthy?auto=format&fit=crop&w=1200&q=80', // Galata-esque
+        'https://images.unsplash.com/photo-1580492495332-65f4chealthy?auto=format&fit=crop&w=1200&q=80',
   ),
 ];
 

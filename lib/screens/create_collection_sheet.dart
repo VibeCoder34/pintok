@@ -16,9 +16,16 @@ class CreateCollectionSheet extends StatefulWidget {
 
 class _CreateCollectionSheetState extends State<CreateCollectionSheet> {
   final TextEditingController _nameController = TextEditingController();
-  bool _isPrivate = true;
   int _selectedCoverIndex = 0;
   bool _submitting = false;
+
+  static const List<List<Color>> _coverSwatches = [
+    [Color(0xFF5E35B1), Color(0xFF2196F3)],
+    [Color(0xFFFF8A65), Color(0xFFFFD54F)],
+    [Color(0xFF26C6DA), Color(0xFF00ACC1)],
+    [Color(0xFF66BB6A), Color(0xFFAED581)],
+    [Color(0xFFEC407A), Color(0xFFFFC1E3)],
+  ];
 
   @override
   void dispose() {
@@ -33,7 +40,9 @@ class _CreateCollectionSheetState extends State<CreateCollectionSheet> {
 
     try {
       final supabase = SupabaseService();
-      final created = await supabase.createCollection(name);
+      final color = _coverSwatches[_selectedCoverIndex].first;
+      final coverColorHex = color.value.toRadixString(16).padLeft(8, '0').substring(2);
+      final created = await supabase.createCollection(name, coverColor: coverColorHex);
       if (!mounted) return;
       Navigator.of(context).pop(created);
     } catch (_) {
@@ -99,7 +108,7 @@ class _CreateCollectionSheetState extends State<CreateCollectionSheet> {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  'Give your collection a name and choose who can see it.',
+                  'Give your collection a name and pick a cover color.',
                   style: TextStyle(
                     fontSize: 13,
                     color: AppColors.textSecondary,
@@ -107,8 +116,6 @@ class _CreateCollectionSheetState extends State<CreateCollectionSheet> {
                 ),
                 const SizedBox(height: 18),
                 _buildNameField(),
-                const SizedBox(height: 18),
-                _buildVisibilityToggle(),
                 const SizedBox(height: 18),
                 _buildCoverPicker(),
                 const SizedBox(height: 22),
@@ -181,59 +188,7 @@ class _CreateCollectionSheetState extends State<CreateCollectionSheet> {
     );
   }
 
-  Widget _buildVisibilityToggle() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Visibility',
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            color: AppColors.textPrimary,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(
-              child: _VisibilityOption(
-                selected: _isPrivate,
-                icon: Icons.lock,
-                title: 'Private',
-                subtitle: 'Only you can see this.',
-                onTap: () {
-                  setState(() => _isPrivate = true);
-                },
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _VisibilityOption(
-                selected: !_isPrivate,
-                icon: Icons.public,
-                title: 'Public',
-                subtitle: 'Friends and visitors can see this.',
-                onTap: () {
-                  setState(() => _isPrivate = false);
-                },
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
   Widget _buildCoverPicker() {
-    final swatches = [
-      [const Color(0xFF5E35B1), const Color(0xFF2196F3)],
-      [const Color(0xFFFF8A65), const Color(0xFFFFD54F)],
-      [const Color(0xFF26C6DA), const Color(0xFF00ACC1)],
-      [const Color(0xFF66BB6A), const Color(0xFFAED581)],
-      [const Color(0xFFEC407A), const Color(0xFFFFC1E3)],
-    ];
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -250,10 +205,10 @@ class _CreateCollectionSheetState extends State<CreateCollectionSheet> {
           height: 52,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
-            itemCount: swatches.length,
+            itemCount: _coverSwatches.length,
             separatorBuilder: (_, __) => const SizedBox(width: 10),
             itemBuilder: (context, index) {
-              final colors = swatches[index];
+              final colors = _coverSwatches[index];
               final selected = _selectedCoverIndex == index;
               return GestureDetector(
                 onTap: () {
@@ -281,78 +236,6 @@ class _CreateCollectionSheetState extends State<CreateCollectionSheet> {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _VisibilityOption extends StatelessWidget {
-  const _VisibilityOption({
-    required this.selected,
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.onTap,
-  });
-
-  final bool selected;
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(14),
-          color: Colors.white.withValues(alpha: selected ? 0.10 : 0.04),
-          border: Border.all(
-            color: selected
-                ? Colors.white.withValues(alpha: 0.9)
-                : Colors.white.withValues(alpha: 0.35),
-            width: 1,
-          ),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(
-              icon,
-              size: 18,
-              color: Colors.white.withValues(alpha: 0.9),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    title,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

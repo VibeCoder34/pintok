@@ -4,35 +4,34 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:lucide_icons_flutter/lucide_icons.dart';
-
 import '../models/collection_model.dart';
 import '../models/library_models.dart';
 import '../services/supabase_service.dart';
+import '../widgets/profile_avatar.dart';
 import 'create_collection_sheet.dart';
 import 'edit_profile_view.dart';
 import 'collection_detail_view.dart';
 import 'settings_view.dart';
 import '../theme/app_theme.dart';
+import '../widgets/fuel_gauge.dart';
 
-/// Data loaded for the library profile header (username, bio, real counts).
+/// Data loaded for the library profile header (display name, bio, real counts, AI fuel).
 class _LibraryProfileData {
   const _LibraryProfileData({
     this.profile,
     required this.pinsCount,
     required this.collectionsCount,
+    required this.displayName,
+    this.aiScansUsed = 0,
+    this.aiScansLimit,
   });
 
   final Map<String, dynamic>? profile;
   final int pinsCount;
   final int collectionsCount;
-
-  String get username =>
-      (profile?['username'] as String?)?.trim().isNotEmpty == true
-          ? (profile?['username'] as String).trim()
-          : (profile?['full_name'] as String?)?.trim().isNotEmpty == true
-              ? (profile?['full_name'] as String).trim()
-              : 'traveler';
+  final String displayName;
+  final int aiScansUsed;
+  final int? aiScansLimit;
 
   String get bio =>
       (profile?['bio'] as String?)?.trim().isNotEmpty == true
@@ -40,6 +39,7 @@ class _LibraryProfileData {
           : 'Curating your personal journey archive.';
 
   String? get avatarUrl => profile?['avatar_url'] as String?;
+  String? get avatarKey => profile?['avatar_key'] as String?;
 }
 
 /// Traveler Profile: personal archive of collections with profile header.
@@ -47,10 +47,13 @@ class LibraryView extends StatefulWidget {
   const LibraryView({
     super.key,
     this.onCollectionsChanged,
+    this.refreshTrigger = 0,
   });
 
   /// Called when user creates a new collection so Map tab can refresh filter chips.
   final VoidCallback? onCollectionsChanged;
+  /// When this value changes (e.g. when user switches to this tab), profile/quota is refetched.
+  final int refreshTrigger;
 
   @override
   State<LibraryView> createState() => _LibraryViewState();
@@ -70,35 +73,85 @@ class _LibraryViewState extends State<LibraryView> {
     _profileFuture = _loadProfileData();
   }
 
+  @override
+  void didUpdateWidget(covariant LibraryView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.refreshTrigger != widget.refreshTrigger) {
+      setState(() => _profileFuture = _loadProfileData());
+    }
+  }
+
   Future<_LibraryProfileData> _loadProfileData() async {
-    final profile = await _supabase.getCurrentUserProfile();
-    final pinsCount = await _supabase.getMyPinsCount();
-    final collectionsCount = await _supabase.getMyCollectionsCount();
-    return _LibraryProfileData(
-      profile: profile,
-      pinsCount: pinsCount,
-      collectionsCount: collectionsCount,
-    );
+    try {
+      // Single profile fetch includes ai_scans_count/ai_scans_limit (select *). No separate quota call.
+      final results = await Future.wait<Object?>([
+        _supabase.getCurrentUserProfile(),
+        _supabase.getMyPinsCount(),
+        _supabase.getMyCollectionsCount(),
+      ]).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () => <Object?>[null, 0, 0],
+      );
+
+      final profile = results[0] as Map<String, dynamic>?;
+      final pinsCount = results[1] as int;
+      final collectionsCount = results[2] as int;
+
+      final aiScansUsed = _parseIntFromProfile(profile, 'ai_scans_count') ?? 0;
+      final aiScansLimit = _parseIntFromProfile(profile, 'ai_scans_limit');
+
+      final displayName = _supabase.getDisplayName(profile);
+
+      return _LibraryProfileData(
+        profile: profile,
+        pinsCount: pinsCount,
+        collectionsCount: collectionsCount,
+        displayName: displayName,
+        aiScansUsed: aiScansUsed,
+        aiScansLimit: aiScansLimit,
+      );
+    } catch (_) {
+      return _LibraryProfileData(
+        profile: null,
+        pinsCount: 0,
+        collectionsCount: 0,
+        displayName: _supabase.getDisplayName(null),
+        aiScansUsed: 0,
+        aiScansLimit: null,
+      );
+    }
+  }
+
+  static int? _parseIntFromProfile(Map<String, dynamic>? profile, String key) {
+    if (profile == null || !profile.containsKey(key)) return null;
+    final v = profile[key];
+    if (v is int) return v;
+    if (v is num) return v.toInt();
+    return int.tryParse('$v');
   }
 
   Future<void> _loadCollections() async {
     setState(() => _loading = true);
     try {
-      final rows = await _supabase.getCollections();
-      final pinCounts = await _supabase.getPinCountsByCollection();
-      final coverImages = await _supabase.getFirstPinImageByCollection();
-      // Map backend collections to UI model. Privacy flags are not yet
-      // stored in the database (we default them), but pinCount is computed
-      // from the pins table so the "x Pins" label stays accurate and
-      // coverImageUrl falls back to the first pin's image if any.
+      // Load collections, pin counts, and cover images concurrently.
+      final collectionsFuture = _supabase.getCollections();
+      final pinCountsFuture = _supabase.getPinCountsByCollection();
+      final coverImagesFuture = _supabase.getFirstPinImageByCollection();
+
+      final rows = await collectionsFuture;
+      final pinCounts = await pinCountsFuture;
+      final coverImages = await coverImagesFuture;
+      // Prefer collection's explicit cover_image_url; else first pin image.
       final mapped = rows
           .map(
             (c) => Collection(
               id: c.id,
               name: c.name,
               pinCount: pinCounts[c.id] ?? 0,
-              coverImageUrl: coverImages[c.id] ?? '',
-              isPrivate: false,
+              coverImageUrl: (c.coverImageUrl != null && c.coverImageUrl!.isNotEmpty)
+                  ? c.coverImageUrl!
+                  : (coverImages[c.id] ?? ''),
+              coverColor: c.coverColor,
             ),
           )
           .toList();
@@ -138,7 +191,7 @@ class _LibraryViewState extends State<LibraryView> {
           name: created.name,
           pinCount: 0,
           coverImageUrl: '',
-          isPrivate: false,
+          coverColor: created.coverColor,
         ),
       );
       _profileFuture = _loadProfileData();
@@ -173,7 +226,7 @@ class _LibraryViewState extends State<LibraryView> {
           ),
           SafeArea(
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -187,11 +240,21 @@ class _LibraryViewState extends State<LibraryView> {
                         profile: null,
                         pinsCount: 0,
                         collectionsCount: 0,
+                        displayName: SupabaseService().getDisplayName(null),
+                        aiScansUsed: 0,
+                        aiScansLimit: null,
                       );
-                      return _LibraryProfileHeader(data: data);
+                      return _LibraryProfileHeader(
+                        data: data,
+                        onAvatarChanged: () {
+                          setState(() {
+                            _profileFuture = _loadProfileData();
+                          });
+                        },
+                      );
                     },
                   ),
-                  const SizedBox(height: 22),
+                  const SizedBox(height: 12),
                   if (_loading)
                     const LinearProgressIndicator(
                       minHeight: 2,
@@ -236,12 +299,16 @@ class _LibraryViewState extends State<LibraryView> {
                                 setState(() => _collections.removeWhere((c) => c.id == collection.id));
                                 widget.onCollectionsChanged?.call();
                               }
+                              if (result['coverUpdated'] == true) {
+                                _loadCollections();
+                                widget.onCollectionsChanged?.call();
+                              }
                               if (result['updated'] != null) {
                                 setState(() {
                                   final i = _collections.indexWhere((c) => c.id == collection.id);
                                   if (i >= 0) {
                                     final c = _collections[i];
-                                    _collections[i] = Collection(id: c.id, name: result['updated'] as String, pinCount: c.pinCount, coverImageUrl: c.coverImageUrl, isPrivate: c.isPrivate);
+                                    _collections[i] = Collection(id: c.id, name: result['updated'] as String, pinCount: c.pinCount, coverImageUrl: c.coverImageUrl, coverColor: c.coverColor);
                                   }
                                 });
                                 widget.onCollectionsChanged?.call();
@@ -335,136 +402,138 @@ class _LibraryProfileHeaderShimmer extends StatelessWidget {
   }
 }
 
-/// Profile header with real username, bio, and counts from Supabase.
+/// Profile header: compact card with avatar, name, scans, actions and stats.
 class _LibraryProfileHeader extends StatelessWidget {
-  const _LibraryProfileHeader({required this.data});
+  const _LibraryProfileHeader({
+    required this.data,
+    this.onAvatarChanged,
+  });
 
   final _LibraryProfileData data;
+  final VoidCallback? onAvatarChanged;
 
   @override
   Widget build(BuildContext context) {
-    final username = data.username.startsWith('@') ? data.username : '@${data.username}';
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            _GlowAvatar(avatarUrl: data.avatarUrl),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+    final displayName = data.displayName;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        color: Colors.white.withValues(alpha: 0.04),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.12),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              ProfileAvatar(
+                avatarUrl: data.avatarUrl,
+                avatarKey: data.avatarKey,
+                radius: 20,
+                onAvatarChanged: onAvatarChanged,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  displayName,
+                  style: GoogleFonts.inter(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textPrimary,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    username,
+                    'Scans ',
                     style: GoogleFonts.inter(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    data.bio,
-                    style: TextStyle(
-                      fontSize: 13,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
                       color: AppColors.textSecondary,
                     ),
                   ),
+                  FuelGauge(
+                    scansUsed: data.aiScansUsed,
+                    scansLimit: data.aiScansLimit,
+                    loading: false,
+                    compact: true,
+                  ),
                 ],
               ),
+              const SizedBox(width: 16),
+              _ActionChip(
+                label: 'Edit Profile',
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const EditProfileView(),
+                      fullscreenDialog: true,
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(width: 6),
+              _SettingsIconButton(),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            '${data.pinsCount} Pins · ${data.collectionsCount} Journeys',
+            style: GoogleFonts.inter(
+              fontSize: 12,
+              color: AppColors.textSecondary,
             ),
-            const SizedBox(width: 8),
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _SettingsIconButton(),
-                const SizedBox(width: 8),
-                OutlinedButton(
-                  onPressed: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => const EditProfileView(),
-                        fullscreenDialog: true,
-                      ),
-                    );
-                  },
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppColors.textPrimary,
-                    side: BorderSide(
-                      color: Colors.white.withValues(alpha: 0.5),
-                      width: 1,
-                    ),
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 8),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    textStyle: GoogleFonts.inter(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  child: const Text('Edit Profile'),
-                ),
-              ],
-            ),
-          ],
-        ),
-        const SizedBox(height: 14),
-        _TravelStatsRow(
-          pins: data.pinsCount,
-          collections: data.collectionsCount,
-          impact: 0,
-        ),
-      ],
+          ),
+        ],
+      ),
     );
   }
 }
 
-class _GlowAvatar extends StatelessWidget {
-  const _GlowAvatar({this.avatarUrl});
+/// Compact tappable chip for header actions.
+class _ActionChip extends StatelessWidget {
+  const _ActionChip({required this.label, required this.onTap});
 
-  final String? avatarUrl;
+  final String label;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.primaryAccent.withValues(alpha: 0.4),
-            blurRadius: 20,
-            spreadRadius: 0,
-          ),
-        ],
-      ),
-      child: Container(
-        padding: const EdgeInsets.all(3),
-        decoration: const BoxDecoration(
-          shape: BoxShape.circle,
-          gradient: LinearGradient(
-            colors: [AppColors.primaryAccent, AppColors.secondaryAccent],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-        ),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(999),
         child: Container(
-          padding: const EdgeInsets.all(2),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
           decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: AppColors.background,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.35),
+              width: 1,
+            ),
           ),
-          child: CircleAvatar(
-            radius: 24,
-            backgroundColor: AppColors.surfaceDark,
-            backgroundImage: avatarUrl != null && avatarUrl!.isNotEmpty
-                ? NetworkImage(avatarUrl!)
-                : null,
-            child: avatarUrl == null || avatarUrl!.isEmpty
-                ? Icon(LucideIcons.user, size: 26, color: AppColors.textSecondary.withValues(alpha: 0.8))
-                : null,
+          child: Text(
+            label,
+            style: GoogleFonts.inter(
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              color: AppColors.textPrimary,
+            ),
           ),
         ),
       ),
@@ -475,129 +544,49 @@ class _GlowAvatar extends StatelessWidget {
 class _SettingsIconButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(999),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-        child: GestureDetector(
-          onTap: () {
-            HapticFeedback.selectionClick();
-            Navigator.of(context).push(
-              PageRouteBuilder(
-                pageBuilder: (_, __, ___) => const SettingsView(),
-                transitionsBuilder: (_, animation, __, child) {
-                  final curved = CurvedAnimation(
-                    parent: animation,
-                    curve: Curves.easeOutCubic,
-                  );
-                  return SlideTransition(
-                    position: Tween<Offset>(
-                      begin: const Offset(1, 0),
-                      end: Offset.zero,
-                    ).animate(curved),
-                    child: child,
-                  );
-                },
-              ),
-            );
-          },
-          child: Container(
-            width: 34,
-            height: 34,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: Colors.white.withValues(alpha: 0.06),
-              border: Border.all(
-                color: Colors.white.withValues(alpha: 0.35),
-                width: 1,
-              ),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () {
+          HapticFeedback.selectionClick();
+          Navigator.of(context).push(
+            PageRouteBuilder(
+              pageBuilder: (_, __, ___) => const SettingsView(),
+              transitionsBuilder: (_, animation, __, child) {
+                final curved = CurvedAnimation(
+                  parent: animation,
+                  curve: Curves.easeOutCubic,
+                );
+                return SlideTransition(
+                  position: Tween<Offset>(
+                    begin: const Offset(1, 0),
+                    end: Offset.zero,
+                  ).animate(curved),
+                  child: child,
+                );
+              },
             ),
-            child: Icon(
-              Icons.settings_outlined,
-              size: 18,
-              color: Colors.white.withValues(alpha: 0.9),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _TravelStatsRow extends StatelessWidget {
-  const _TravelStatsRow({
-    required this.pins,
-    required this.collections,
-    required this.impact,
-  });
-
-  final int pins;
-  final int collections;
-  final int impact;
-
-  @override
-  Widget build(BuildContext context) {
-    Widget buildItem(String label, String value) {
-      return Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            value,
-            style: GoogleFonts.inter(
-              fontSize: 15,
-              fontWeight: FontWeight.w700,
-              color: AppColors.textPrimary,
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 12,
-              color: AppColors.textSecondary,
-            ),
-          ),
-        ],
-      );
-    }
-
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(18),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+          );
+        },
+        borderRadius: BorderRadius.circular(999),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+          width: 28,
+          height: 28,
+          alignment: Alignment.center,
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
-            color: Colors.white.withValues(alpha: 0.04),
+            shape: BoxShape.circle,
             border: Border.all(
-              color: Colors.white.withValues(alpha: 0.32),
+              color: Colors.white.withValues(alpha: 0.35),
               width: 1,
             ),
           ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              buildItem('Pins', '$pins'),
-              _StatsDivider(),
-              buildItem('Collections', '$collections'),
-              _StatsDivider(),
-              buildItem('Impact', '$impact'),
-            ],
+          child: Icon(
+            Icons.settings_outlined,
+            size: 16,
+            color: Colors.white.withValues(alpha: 0.9),
           ),
         ),
       ),
-    );
-  }
-}
-
-class _StatsDivider extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 1,
-      height: 24,
-      color: Colors.white.withValues(alpha: 0.24),
     );
   }
 }
@@ -753,6 +742,32 @@ class _CollectionCard extends StatelessWidget {
   final Collection collection;
   final void Function(Map<String, dynamic>? result) onDetailResult;
 
+  static Widget _collectionCoverPlaceholder(String? coverColorHex) {
+    Color color = AppColors.primaryAccent.withValues(alpha: 0.3);
+    if (coverColorHex != null && coverColorHex.isNotEmpty) {
+      try {
+        final hex = coverColorHex.startsWith('#') ? coverColorHex.substring(1) : coverColorHex;
+        if (hex.length >= 6) {
+          color = Color(0xFF000000 | int.parse(hex.substring(0, 6), radix: 16));
+        }
+      } catch (_) {}
+    }
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [color, color.withValues(alpha: 0.6)],
+        ),
+      ),
+      child: Icon(
+        Icons.map_outlined,
+        size: 40,
+        color: Colors.white.withValues(alpha: 0.8),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return ClipRRect(
@@ -786,26 +801,19 @@ class _CollectionCard extends StatelessWidget {
                     child: Stack(
                       fit: StackFit.expand,
                       children: [
-                        Image.network(
-                          collection.coverImageUrl,
-                          fit: BoxFit.cover,
-                          loadingBuilder: (context, child, progress) {
-                            if (progress == null) return child;
-                            return Container(
-                              color: Colors.black.withValues(alpha: 0.25),
-                            );
-                          },
-                          errorBuilder: (context, _, __) {
-                            return Container(
-                              color: Colors.black.withValues(alpha: 0.25),
-                              child: Icon(
-                                Icons.photo,
-                                color: Colors.white.withValues(alpha: 0.7),
-                                size: 32,
-                              ),
-                            );
-                          },
-                        ),
+                        if (collection.coverImageUrl.isNotEmpty)
+                          Image.network(
+                            collection.coverImageUrl,
+                            fit: BoxFit.cover,
+                            loadingBuilder: (context, child, progress) {
+                              if (progress == null) return child;
+                              return _collectionCoverPlaceholder(collection.coverColor);
+                            },
+                            errorBuilder: (context, _, __) =>
+                                _collectionCoverPlaceholder(collection.coverColor),
+                          )
+                        else
+                          _collectionCoverPlaceholder(collection.coverColor),
                         Container(
                           decoration: const BoxDecoration(
                             gradient: LinearGradient(
@@ -839,23 +847,13 @@ class _CollectionCard extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          Icon(
-                            collection.isPrivate ? Icons.lock : Icons.public,
-                            size: 14,
-                            color: AppColors.textSecondary,
-                          ),
-                          const SizedBox(width: 6),
-                          Text(
-                            '${collection.pinCount} Pins',
-                            style: GoogleFonts.inter(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w500,
-                              color: AppColors.textSecondary,
-                            ),
-                          ),
-                        ],
+                      Text(
+                        '${collection.pinCount} Pins',
+                        style: GoogleFonts.inter(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          color: AppColors.textSecondary,
+                        ),
                       ),
                     ],
                   ),

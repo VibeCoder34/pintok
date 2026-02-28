@@ -1,4 +1,4 @@
-package com.example.pintok
+package com.keremugurlu.pintok
 
 import io.flutter.embedding.android.FlutterActivity
 

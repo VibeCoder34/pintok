@@ -14,9 +14,11 @@ class AuthView extends StatefulWidget {
   const AuthView({
     super.key,
     required this.onAuthenticated,
+    this.onForgotPassword,
   });
 
   final VoidCallback onAuthenticated;
+  final VoidCallback? onForgotPassword;
 
   @override
   State<AuthView> createState() => _AuthViewState();
@@ -78,11 +80,9 @@ class _AuthViewState extends State<AuthView> {
       if (_isSignIn) {
         await _authService.signIn(email: email, password: password);
       } else {
-        final username = _deriveUsername(fullName: fullName, email: email);
         await _authService.signUp(
           email: email,
           password: password,
-          username: username,
           fullName: fullName,
         );
       }
@@ -98,16 +98,6 @@ class _AuthViewState extends State<AuthView> {
         setState(() => _isLoading = false);
       }
     }
-  }
-
-  String _deriveUsername({required String fullName, required String email}) {
-    var base = fullName.trim().toLowerCase();
-    if (base.isEmpty) {
-      base = email.split('@').first.toLowerCase();
-    }
-    base = base.replaceAll(RegExp(r'[^a-z0-9]+'), '_').replaceAll(RegExp(r'_+'), '_');
-    base = base.replaceAll(RegExp(r'^_+|_+$'), '');
-    return base.isEmpty ? 'user_${DateTime.now().millisecondsSinceEpoch}' : base;
   }
 
   String _mapAuthErrorMessage(AuthException e) {
@@ -315,12 +305,7 @@ class _AuthViewState extends State<AuthView> {
           child: TextButton(
             onPressed: () {
               HapticFeedback.lightImpact();
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Password reset coming soon'),
-                  behavior: SnackBarBehavior.floating,
-                ),
-              );
+              widget.onForgotPassword?.call();
             },
             style: TextButton.styleFrom(
               padding: EdgeInsets.zero,

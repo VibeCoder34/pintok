@@ -91,7 +91,7 @@ class _SavedPlacesViewState extends State<SavedPlacesView> {
   }
 }
 
-/// Top bar: title + My Collections | Profile segment control.
+/// Top bar: title + My Journeys | Profile segment control.
 class _HeaderWithToggle extends StatelessWidget {
   const _HeaderWithToggle({
     required this.isProfileView,
@@ -108,7 +108,7 @@ class _HeaderWithToggle extends StatelessWidget {
       child: Row(
         children: [
           Text(
-            isProfileView ? 'Profile' : 'My Collections',
+            isProfileView ? 'Profile' : 'My Journeys',
             style: GoogleFonts.playfairDisplay(
               fontSize: 24,
               fontWeight: FontWeight.w600,
@@ -298,7 +298,7 @@ class _FolderCard extends StatelessWidget {
   }
 }
 
-/// Empty state when no collections (or no shared ones in Profile mode).
+/// Empty state when no journeys (or no shared ones in Profile mode).
 class _EmptyCollectionsState extends StatelessWidget {
   const _EmptyCollectionsState({required this.isProfileView});
 
@@ -319,7 +319,7 @@ class _EmptyCollectionsState extends StatelessWidget {
             ),
             const SizedBox(height: 20),
             Text(
-              isProfileView ? 'No shared collections' : 'No collections yet',
+              isProfileView ? 'No shared journeys' : 'No journeys yet',
               textAlign: TextAlign.center,
               style: GoogleFonts.playfairDisplay(
                 fontSize: 20,
@@ -330,8 +330,8 @@ class _EmptyCollectionsState extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               isProfileView
-                  ? 'Collections shared on profile will appear here.'
-                  : 'Create a folder and add pins to get started.',
+                  ? 'Journeys shared on profile will appear here.'
+                  : 'Create a journey and add pins to get started.',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 14, color: AppColors.textSecondary, height: 1.4),
             ),

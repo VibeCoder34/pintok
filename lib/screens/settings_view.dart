@@ -6,11 +6,13 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../providers/settings_provider.dart';
 import '../services/auth_service.dart';
 import '../services/supabase_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/fuel_gauge.dart';
 import 'edit_profile_screen.dart';
 
 /// Comprehensive Settings screen with glassmorphism, categorized sections,
@@ -52,6 +54,9 @@ class SettingsView extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
               sliver: SliverList(
                 delegate: SliverChildListDelegate([
+                  _SectionHeader(title: 'Subscription & Fuel'),
+                  const _FuelStatusCard(),
+                  const SizedBox(height: 24),
                   _SectionHeader(title: 'Account'),
                   _GlassSection(
                     children: [
@@ -59,11 +64,6 @@ class SettingsView extends StatelessWidget {
                         icon: LucideIcons.userPen,
                         title: 'Personal Information',
                         onTap: () => _openEditProfile(context),
-                      ),
-                      _SettingsTile(
-                        icon: LucideIcons.mail,
-                        title: 'Security',
-                        onTap: () => _showComingSoon(context, 'Security'),
                       ),
                     ],
                   ),
@@ -78,20 +78,6 @@ class SettingsView extends StatelessWidget {
                         title: 'Language',
                         subtitle: 'English',
                         onTap: () => _showComingSoon(context, 'Language'),
-                      ),
-                      _HapticFeedbackTile(),
-                    ],
-                  ),
-                  const SizedBox(height: 24),
-                  _SectionHeader(title: 'Privacy & Social'),
-                  _GlassSection(
-                    children: [
-                      _PublicProfileTile(),
-                      _MapVisibilityTile(),
-                      _SettingsTile(
-                        icon: LucideIcons.userX,
-                        title: 'Blocked Users',
-                        onTap: () => _showComingSoon(context, 'Blocked Users'),
                       ),
                     ],
                   ),
@@ -114,42 +100,28 @@ class SettingsView extends StatelessWidget {
                   _GlassSection(
                     children: [
                       _SettingsTile(
-                        icon: Icons.help_outline,
-                        title: 'Help Center',
-                        onTap: () => _showComingSoon(context, 'Help Center'),
-                      ),
-                      _SettingsTile(
                         icon: Icons.description_outlined,
                         title: 'Terms of Service',
-                        onTap: () => _showComingSoon(context, 'Terms of Service'),
+                        onTap: () => _launchLegalUrl(
+                          context,
+                          'https://www.keremugurlu.com/pintok/terms/',
+                        ),
                       ),
                       _SettingsTile(
                         icon: Icons.privacy_tip_outlined,
                         title: 'Privacy Policy',
-                        onTap: () => _showComingSoon(context, 'Privacy Policy'),
+                        onTap: () => _launchLegalUrl(
+                          context,
+                          'https://www.keremugurlu.com/pintok/privacy/',
+                        ),
                       ),
                     ],
                   ),
                   const SizedBox(height: 24),
-                  _SectionHeader(title: 'Storage & AI'),
-                  _GlassSection(
-                    children: [
-                      _SettingsTile(
-                        icon: LucideIcons.imageOff,
-                        title: 'Clear Image Cache',
-                        subtitle: 'Free up phone space',
-                        onTap: () => _clearImageCache(context),
-                      ),
-                      _SettingsTile(
-                        icon: LucideIcons.trash2,
-                        title: 'AI History',
-                        subtitle: 'Delete history of scanned photos',
-                        onTap: () => _clearAIHistory(context),
-                      ),
-                    ],
+                  _SectionHeader(
+                    title: 'Account & Security (Supabase Sync)',
+                    isDanger: true,
                   ),
-                  const SizedBox(height: 24),
-                  _SectionHeader(title: 'Danger Zone', isDanger: true),
                   _GlassSection(
                     borderTint: AppColors.secondaryAccent.withValues(alpha: 0.35),
                     children: [
@@ -160,7 +132,7 @@ class SettingsView extends StatelessWidget {
                       ),
                       _DangerTile(
                         icon: LucideIcons.trash2,
-                        title: 'Delete Account',
+                        title: 'Delete My Data & Account',
                         onTap: () => _deleteAccount(context),
                       ),
                     ],
@@ -168,7 +140,7 @@ class SettingsView extends StatelessWidget {
                   const SizedBox(height: 24),
                   Center(
                     child: Text(
-                      'Version 1.0.0',
+                      'App Version: 1.0.0 (MVP)',
                       style: GoogleFonts.inter(
                         fontSize: 12,
                         color: AppColors.textSecondary.withValues(alpha: 0.9),
@@ -254,6 +226,20 @@ class SettingsView extends StatelessWidget {
     );
   }
 
+  Future<void> _launchLegalUrl(BuildContext context, String url) async {
+    final uri = Uri.parse(url);
+    if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not open link'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+
   void _logOut(BuildContext context) {
     HapticFeedback.mediumImpact();
     showDialog<void>(
@@ -282,7 +268,10 @@ class SettingsView extends StatelessWidget {
             },
             child: Text(
               'Log Out',
-              style: TextStyle(color: AppColors.secondaryAccent, fontWeight: FontWeight.w600),
+              style: TextStyle(
+                color: AppColors.secondaryAccent,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
         ],
@@ -315,7 +304,8 @@ class SettingsView extends StatelessWidget {
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
-                      content: Text('Account data deleted. You have been signed out.'),
+                      content:
+                          Text('Account data deleted. You have been signed out.'),
                       behavior: SnackBarBehavior.floating,
                     ),
                   );
@@ -335,6 +325,110 @@ class SettingsView extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Section header: semi-transparent bold label.
+class _FuelStatusCard extends StatelessWidget {
+  const _FuelStatusCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return _GlassSection(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+          child: Row(
+            children: [
+              Icon(
+                LucideIcons.flame,
+                color: AppColors.primaryAccent,
+                size: 24,
+              ),
+              const SizedBox(width: 12),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Fuel Status',
+                    style: GoogleFonts.inter(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Track your AI scan fuel for this month',
+                    style: GoogleFonts.inter(
+                      fontSize: 13,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        FutureBuilder<Map<String, int?>>(
+          future: SupabaseService().getAiScanQuota(),
+          builder: (context, snapshot) {
+            final loading = snapshot.connectionState == ConnectionState.waiting;
+            final data = snapshot.data;
+            final used = data?['ai_scans_count'] ?? 0;
+            final limit = data?['ai_scans_limit'];
+
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  FuelGauge(
+                    scansUsed: used,
+                    scansLimit: limit,
+                    loading: loading,
+                    compact: false,
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppColors.primaryAccent,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(
+                          vertical: 12,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                      ),
+                      onPressed: () {
+                        HapticFeedback.mediumImpact();
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Explorer upgrade coming soon'),
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                      },
+                      child: Text(
+                        'Upgrade to Explorer',
+                        style: GoogleFonts.inter(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+              ),
+            );
+          },
+        ),
+      ],
     );
   }
 }
@@ -496,7 +590,7 @@ class _ThemeModeTile extends StatelessWidget {
     return ListTile(
       leading: Icon(LucideIcons.palette, size: 22, color: AppColors.textSecondary),
       title: Text(
-        'Theme Mode',
+        'Map Theme',
         style: GoogleFonts.inter(
           fontSize: 16,
           fontWeight: FontWeight.w600,
@@ -511,17 +605,19 @@ class _ThemeModeTile extends StatelessWidget {
             isExpanded: true,
             dropdownColor: AppColors.surfaceDark,
             icon: Icon(LucideIcons.chevronDown, size: 18, color: AppColors.textSecondary),
-            items: AppThemeMode.values
-                .map((m) => DropdownMenuItem(
-                      value: m,
-                      child: Text(
-                        settings.themeMode == m ? _label(m) : _label(m),
-                        style: GoogleFonts.inter(
-                          fontSize: 14,
-                          color: AppColors.textPrimary,
-                        ),
+            items: const [AppThemeMode.dark, AppThemeMode.light]
+                .map(
+                  (m) => DropdownMenuItem(
+                    value: m,
+                    child: Text(
+                      _labelStatic(m),
+                      style: GoogleFonts.inter(
+                        fontSize: 14,
+                        color: AppColors.textPrimary,
                       ),
-                    ))
+                    ),
+                  ),
+                )
                 .toList(),
             onChanged: (v) {
               if (v != null) {
@@ -539,10 +635,10 @@ class _ThemeModeTile extends StatelessWidget {
     );
   }
 
-  String _label(AppThemeMode m) {
+  static String _labelStatic(AppThemeMode m) {
     switch (m) {
       case AppThemeMode.dark:
-        return 'Dark';
+        return 'Default Dark';
       case AppThemeMode.light:
         return 'Light';
       case AppThemeMode.system:
@@ -598,163 +694,6 @@ class _DistanceUnitTile extends StatelessWidget {
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.all(Radius.circular(12)),
-      ),
-    );
-  }
-}
-
-/// Haptic feedback toggle.
-class _HapticFeedbackTile extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    final settings = context.watch<SettingsProvider>();
-    return ListTile(
-      leading: Icon(LucideIcons.hand, size: 22, color: AppColors.textSecondary),
-      title: Text(
-        'Haptic Feedback',
-        style: GoogleFonts.inter(
-          fontSize: 16,
-          fontWeight: FontWeight.w600,
-          color: AppColors.textPrimary,
-        ),
-      ),
-      trailing: Switch(
-        value: settings.hapticFeedback,
-        onChanged: (v) {
-          HapticFeedback.selectionClick();
-          settings.hapticFeedback = v;
-        },
-        activeColor: AppColors.primaryAccent,
-      ),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.all(Radius.circular(12)),
-      ),
-    );
-  }
-}
-
-/// Public profile toggle (when off, only Friends see collections).
-class _PublicProfileTile extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    final settings = context.watch<SettingsProvider>();
-    return ListTile(
-      leading: Icon(LucideIcons.globe, size: 22, color: AppColors.textSecondary),
-      title: Text(
-        'Discoverability',
-        style: GoogleFonts.inter(
-          fontSize: 16,
-          fontWeight: FontWeight.w600,
-          color: AppColors.textPrimary,
-        ),
-      ),
-      subtitle: Text(
-        'Allow others to find my profile',
-        style: GoogleFonts.inter(
-          fontSize: 13,
-          color: AppColors.textSecondary,
-        ),
-      ),
-      trailing: Switch(
-        value: settings.publicProfile,
-        onChanged: (v) {
-          HapticFeedback.selectionClick();
-          settings.publicProfile = v;
-        },
-        activeColor: AppColors.primaryAccent,
-      ),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.all(Radius.circular(12)),
-      ),
-    );
-  }
-}
-
-/// Map visibility: who can see live-pinned locations.
-class _MapVisibilityTile extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    final settings = context.watch<SettingsProvider>();
-    return ListTile(
-      onTap: () => _showMapVisibilityPicker(context, settings),
-      leading: Icon(LucideIcons.mapPin, size: 22, color: AppColors.textSecondary),
-      title: Text(
-        'Default Collection Privacy',
-        style: GoogleFonts.inter(
-          fontSize: 16,
-          fontWeight: FontWeight.w600,
-          color: AppColors.textPrimary,
-        ),
-      ),
-      subtitle: Text(
-        'Choose whether new collections are Private or Public by default',
-        style: GoogleFonts.inter(
-          fontSize: 13,
-          color: AppColors.textSecondary,
-        ),
-      ),
-      trailing: Icon(
-        LucideIcons.chevronRight,
-        size: 20,
-        color: AppColors.textSecondary.withValues(alpha: 0.8),
-      ),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.all(Radius.circular(12)),
-      ),
-    );
-  }
-
-  void _showMapVisibilityPicker(BuildContext context, SettingsProvider settings) {
-    HapticFeedback.selectionClick();
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => Container(
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: AppColors.surfaceDark,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-          border: Border.all(
-            color: Colors.white.withValues(alpha: AppTheme.glassBorderOpacity),
-          ),
-        ),
-        child: SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                'Default Collection Privacy',
-                style: GoogleFonts.inter(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.textPrimary,
-                ),
-              ),
-              const SizedBox(height: 16),
-              ...MapVisibility.values.map((v) {
-                final label = v == MapVisibility.everyone
-                    ? 'Public'
-                    : v == MapVisibility.friends
-                        ? 'Friends only'
-                        : 'Private';
-                return ListTile(
-                  title: Text(label, style: GoogleFonts.inter(color: AppColors.textPrimary)),
-                  trailing: settings.mapVisibility == v
-                      ? Icon(LucideIcons.check, color: AppColors.primaryAccent, size: 20)
-                      : null,
-                  onTap: () {
-                    settings.mapVisibility = v;
-                    Navigator.of(ctx).pop();
-                  },
-                );
-              }),
-            ],
-          ),
-        ),
       ),
     );
   }

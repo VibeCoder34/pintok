@@ -27,6 +27,7 @@ class _CollectionDetailViewState extends State<CollectionDetailView> {
   final SupabaseService _supabase = SupabaseService();
   late Future<List<PinModel>> _pinsFuture;
   late Collection _collection;
+  List<PinModel> _currentPinModels = [];
 
   @override
   void initState() {
@@ -86,6 +87,14 @@ class _CollectionDetailViewState extends State<CollectionDetailView> {
                     },
                   ),
                   ListTile(
+                    leading: const Icon(Icons.photo_library_rounded),
+                    title: const Text('Set cover photo'),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _showSetCoverSheet(ctx, _currentPinModels);
+                    },
+                  ),
+                  ListTile(
                     leading: Icon(Icons.delete_rounded, color: Colors.red.shade400),
                     title: Text('Delete Collection', style: TextStyle(color: Colors.red.shade400, fontWeight: FontWeight.w600)),
                     onTap: () {
@@ -93,6 +102,142 @@ class _CollectionDetailViewState extends State<CollectionDetailView> {
                       _showDeleteCollectionConfirm(ctx);
                     },
                   ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _setCoverFromPinUrl(String imageUrl) async {
+    try {
+      await _supabase.setCollectionCover(_collection.id, imageUrl);
+      if (!mounted) return;
+      setState(() => _collection = Collection(
+        id: _collection.id,
+        name: _collection.name,
+        pinCount: _collection.pinCount,
+        coverImageUrl: imageUrl,
+        coverColor: _collection.coverColor,
+      ));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Cover updated'), behavior: SnackBarBehavior.floating),
+      );
+      Navigator.of(context).pop({'coverUpdated': true});
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to update cover'), behavior: SnackBarBehavior.floating),
+        );
+      }
+    }
+  }
+
+  void _showSetCoverSheet(BuildContext context, List<PinModel> pinModels) {
+    final pinsWithImage = pinModels.where((p) => p.imageUrl != null && p.imageUrl!.isNotEmpty).toList();
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => ClipRRect(
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+            decoration: BoxDecoration(
+              color: AppColors.background.withValues(alpha: 0.95),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+            ),
+            child: SafeArea(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    'Cover photo',
+                    style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Choose a pin\'s photo as cover or remove the current cover.',
+                    style: GoogleFonts.inter(fontSize: 13, color: AppColors.textSecondary),
+                  ),
+                  const SizedBox(height: 16),
+                  if (_collection.coverImageUrl.isNotEmpty)
+                    ListTile(
+                      leading: Icon(Icons.remove_circle_outline, color: AppColors.textSecondary),
+                      title: Text('Remove cover', style: GoogleFonts.inter(color: AppColors.textSecondary)),
+                      onTap: () async {
+                        Navigator.pop(ctx);
+                        try {
+                          await _supabase.setCollectionCover(_collection.id, null);
+                          if (!mounted) return;
+                          setState(() => _collection = Collection(
+                            id: _collection.id,
+                            name: _collection.name,
+                            pinCount: _collection.pinCount,
+                            coverImageUrl: '',
+                            coverColor: _collection.coverColor,
+                          ));
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Cover removed'), behavior: SnackBarBehavior.floating),
+                          );
+                          Navigator.of(context).pop({'coverUpdated': true});
+                        } catch (_) {
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Failed to update cover'), behavior: SnackBarBehavior.floating),
+                            );
+                          }
+                        }
+                      },
+                    ),
+                  if (pinsWithImage.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      child: Text(
+                        'No pins with photos in this journey yet.',
+                        style: GoogleFonts.inter(fontSize: 14, color: AppColors.textSecondary),
+                      ),
+                    )
+                  else
+                    ...pinsWithImage.map((pin) => ListTile(
+                      leading: ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: pin.imageUrl != null && pin.imageUrl!.isNotEmpty
+                            ? Image.network(pin.imageUrl!, width: 44, height: 44, fit: BoxFit.cover)
+                            : const SizedBox(width: 44, height: 44, child: Icon(Icons.photo)),
+                      ),
+                      title: Text(pin.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: GoogleFonts.inter(color: AppColors.textPrimary)),
+                      onTap: () async {
+                        Navigator.pop(ctx);
+                        final url = pin.imageUrl ?? '';
+                        if (url.isEmpty) return;
+                        try {
+                          await _supabase.setCollectionCover(_collection.id, url);
+                          if (!mounted) return;
+                          setState(() => _collection = Collection(
+                            id: _collection.id,
+                            name: _collection.name,
+                            pinCount: _collection.pinCount,
+                            coverImageUrl: url,
+                            coverColor: _collection.coverColor,
+                          ));
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Cover updated'), behavior: SnackBarBehavior.floating),
+                          );
+                          Navigator.of(context).pop({'coverUpdated': true});
+                        } catch (_) {
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Failed to update cover'), behavior: SnackBarBehavior.floating),
+                            );
+                          }
+                        }
+                      },
+                    )),
                 ],
               ),
             ),
@@ -136,7 +281,7 @@ class _CollectionDetailViewState extends State<CollectionDetailView> {
                   name: name,
                   pinCount: _collection.pinCount,
                   coverImageUrl: _collection.coverImageUrl,
-                  isPrivate: _collection.isPrivate,
+                  coverColor: _collection.coverColor,
                 ));
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('Collection updated'), behavior: SnackBarBehavior.floating),
@@ -229,6 +374,7 @@ class _CollectionDetailViewState extends State<CollectionDetailView> {
           );
         }
         final pinModels = snapshot.data ?? [];
+        _currentPinModels = pinModels;
         final pins = _pinsToSavedPins(pinModels, _collection.id);
 
         return Scaffold(
@@ -274,6 +420,9 @@ class _CollectionDetailViewState extends State<CollectionDetailView> {
                           );
                         }
                       },
+                      onSetAsCover: pin.imageUrl.isNotEmpty
+                          ? () => _setCoverFromPinUrl(pin.imageUrl)
+                          : null,
                     ),
                   );
                 },
@@ -400,7 +549,7 @@ class _MiniMapHeader extends StatelessWidget {
               urlTemplate:
                   'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
               subdomains: const ['a', 'b', 'c', 'd'],
-              userAgentPackageName: 'com.example.pintok',
+              userAgentPackageName: 'com.keremugurlu.pintok',
               retinaMode: true,
             ),
             MarkerLayer(
@@ -469,40 +618,13 @@ class _CollectionMetaRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-      child: Row(
-        children: [
-          Icon(
-            collection.isPrivate ? Icons.lock : Icons.public,
-            size: 18,
-            color: Colors.white.withOpacity(0.9),
-          ),
-          const SizedBox(width: 8),
-          Text(
-            collection.isPrivate ? 'Private Collection' : 'Public Collection',
-            style: GoogleFonts.inter(
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-              color: Colors.white.withOpacity(0.9),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Container(
-            width: 4,
-            height: 4,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: Colors.white.withOpacity(0.6),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Text(
-            '$pinCount Pins',
-            style: GoogleFonts.inter(
-              fontSize: 13,
-              color: Colors.white.withOpacity(0.8),
-            ),
-          ),
-        ],
+      child: Text(
+        '$pinCount Pins',
+        style: GoogleFonts.inter(
+          fontSize: 13,
+          fontWeight: FontWeight.w500,
+          color: Colors.white.withOpacity(0.9),
+        ),
       ),
     );
   }
@@ -514,17 +636,19 @@ class _PinPostCard extends StatelessWidget {
     this.currentCollectionId,
     this.onDeleted,
     this.onMoved,
+    this.onSetAsCover,
   });
 
   final SavedPin pin;
   final String? currentCollectionId;
   final VoidCallback? onDeleted;
   final VoidCallback? onMoved;
+  final VoidCallback? onSetAsCover;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final hasActions = onDeleted != null || onMoved != null;
+    final hasActions = onDeleted != null || onMoved != null || onSetAsCover != null;
 
     return GestureDetector(
       onLongPress: hasActions
@@ -737,6 +861,15 @@ class _PinPostCard extends StatelessWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  if (onSetAsCover != null && pin.imageUrl.isNotEmpty)
+                    ListTile(
+                      leading: const Icon(Icons.photo_library_rounded),
+                      title: const Text('Set as cover photo'),
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        onSetAsCover?.call();
+                      },
+                    ),
                   if (onMoved != null && currentCollectionId != null)
                     ListTile(
                       leading: const Icon(Icons.folder_rounded),

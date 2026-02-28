@@ -36,6 +36,24 @@ const _systemPrompt = r'''
 You are a travel assistant. Look at this social media screenshot and extract the exact name of the place, the city, a short 1-sentence description, and a category (one word: e.g. Museum, Cafe, Nature, Landmark, Restaurant, Park, Beach, Hotel, Bar, Shop). If you can't find a specific place, guess based on visual cues. Return ONLY a JSON object: {"name": "...", "city": "...", "description": "...", "category": "..."}.
 ''';
 
+/// Prompt variant for caption-only analysis (Instagram / TikTok captions).
+const _captionSystemPrompt = r'''
+You are an expert travel scout. I will paste an Instagram/TikTok caption.
+Your job is to extract the specific name of the venue (restaurant, hotel, cafe, bar, viewpoint, or landmark) and the city it is located in.
+
+Use clues like:
+- hashtags (e.g., #LacivertRestaurant, #SohoHouseIstanbul)
+- phone numbers
+- context words like "at Lacivert", "dinner at", "stayed at", "at the rooftop of"
+
+Ignore general motivational or lifestyle text that does not identify a concrete place.
+
+Return JSON:
+{"name": "...", "city": "...", "category": "..."}.
+
+If no specific place can be identified, return null.
+''';
+
 /// Service for Gemini image analysis and geocoding.
 /// Set GEMINI_API_KEY via --dart-define=GEMINI_API_KEY=your_key when running.
 class AiService {
@@ -77,6 +95,66 @@ class AiService {
     } catch (e, stackTrace) {
       print('GEMINI_ERROR: $e');
       print('GEMINI_ERROR_STACK: $stackTrace');
+      return null;
+    }
+  }
+
+  /// Analyzes a social media caption (text-only) and returns [AnalyzedSpot] or null on failure.
+  ///
+  /// Optionally pass [locationHint] (e.g. from Apify locationName) to help disambiguate.
+  Future<AnalyzedSpot?> analyzeCaption(
+    String caption, {
+    String? locationHint,
+  }) async {
+    try {
+      if (_apiKey.isEmpty) {
+        throw StateError(
+          'GEMINI_API_KEY is not set. Run with --dart-define=GEMINI_API_KEY=your_key',
+        );
+      }
+
+      final buffer = StringBuffer()
+        ..writeln(_captionSystemPrompt.trim())
+        ..writeln()
+        ..writeln('Caption:')
+        ..writeln(caption.trim());
+
+      if (locationHint != null && locationHint.trim().isNotEmpty) {
+        buffer
+          ..writeln()
+          ..writeln(
+            'Hint: the visible location label on the post UI is "${locationHint.trim()}". '
+            'Use this only if it helps you be more precise about the place name and city.',
+          );
+      }
+
+      final text = await _generateContentFromText(prompt: buffer.toString());
+      print('GEMINI_CAPTION_RAW_RESPONSE: ${text ?? "(null or empty)"}');
+      if (text == null || text.isEmpty) return null;
+
+      final jsonStr = _extractJson(text);
+      final lowered = jsonStr.trim().toLowerCase();
+      if (lowered == 'null') {
+        print('GEMINI_CAPTION_PARSED: null (no specific place found)');
+        return null;
+      }
+
+      final decoded = json.decode(jsonStr);
+      if (decoded is! Map<String, dynamic>) {
+        print('GEMINI_CAPTION_PARSED_UNEXPECTED_JSON: $decoded');
+        return null;
+      }
+
+      final spot = AnalyzedSpot.fromJson(decoded);
+      print(
+        'GEMINI_CAPTION_PARSED: name="${spot.name}", city="${spot.city}", '
+        'description="${spot.description}", category="${spot.category}"',
+      );
+      if (spot.name.isEmpty && spot.city.isEmpty) return null;
+      return spot;
+    } catch (e, stackTrace) {
+      print('GEMINI_CAPTION_ERROR: $e');
+      print('GEMINI_CAPTION_ERROR_STACK: $stackTrace');
       return null;
     }
   }
@@ -197,6 +275,59 @@ class AiService {
 
     if (response.statusCode != 200) {
       print('GEMINI_HTTP_ERROR (${url.path}): ${response.statusCode} ${response.body}');
+      return null;
+    }
+
+    final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+    final candidates = decoded['candidates'] as List<dynamic>?;
+    if (candidates == null || candidates.isEmpty) return null;
+
+    final candidate = candidates.first as Map<String, dynamic>;
+    final content = candidate['content'] as Map<String, dynamic>?;
+    final parts = content?['parts'] as List<dynamic>?;
+    if (parts == null || parts.isEmpty) return null;
+
+    for (final part in parts) {
+      if (part is Map<String, dynamic>) {
+        final text = part['text'] as String?;
+        if (text != null && text.trim().isNotEmpty) {
+          return text.trim();
+        }
+      }
+    }
+
+    return null;
+  }
+
+  /// Calls Gemini generateContent via HTTP using a text-only request body.
+  Future<String?> _generateContentFromText({
+    required String prompt,
+  }) async {
+    final url = Uri.parse(
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=$_apiKey',
+    );
+
+    final body = <String, dynamic>{
+      'contents': [
+        {
+          'parts': [
+            {'text': prompt},
+          ],
+        },
+      ],
+    };
+
+    final response = await http.post(
+      url,
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode(body),
+    );
+
+    if (response.statusCode != 200) {
+      print(
+        'GEMINI_TEXT_HTTP_ERROR (${url.path}): '
+        '${response.statusCode} ${response.body}',
+      );
       return null;
     }
 

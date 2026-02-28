@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -15,7 +16,10 @@ import '../models/collection_model.dart';
 import 'library_view.dart';
 import '../providers/saved_places_provider.dart';
 import '../services/ai_service.dart';
+import '../services/apify_service.dart';
+import '../services/auth_service.dart';
 import '../services/google_places_service.dart';
+import '../services/supabase_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/analysis_overlay.dart';
 import 'map_screen.dart';
@@ -31,6 +35,7 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> {
   int _currentIndex = 0;
   int _collectionsVersion = 0;
+  int _libraryRefreshKey = 0;
   AnalyzedSpot? _previewSpot;
   MockLocation? _previewLocation;
   Uint8List? _previewImageBytes;
@@ -38,6 +43,8 @@ class _MainShellState extends State<MainShell> {
   bool _showAiOverlay = false;
   String? _previewProfessionalPhotoUrl;
   bool _previewProfessionalPhotoLoading = false;
+  bool _isLinkAnalysisInProgress = false;
+  String? _linkAnalysisStatusMessage;
 
   void _setPreview(AnalyzedSpot spot, MockLocation location, List<int>? imageBytes) {
     setState(() {
@@ -97,6 +104,43 @@ class _MainShellState extends State<MainShell> {
     setState(() => _focusLocationForMap = null);
   }
 
+  /// Returns true if user has AI fuel left; false if exhausted (and shows dialog).
+  Future<bool> _checkAiFuel(BuildContext context) async {
+    final quota = await SupabaseService().getAiScanQuota();
+    final count = quota['ai_scans_count'] ?? 0;
+    final limit = quota['ai_scans_limit'];
+    if (limit != null && count >= limit) {
+      if (context.mounted) _showFuelExhaustedDialog(context);
+      return false;
+    }
+    return true;
+  }
+
+  void _showFuelExhaustedDialog(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surfaceDark,
+        title: Row(
+          children: [
+            Icon(LucideIcons.flame, color: AppColors.primaryAccent, size: 24),
+            const SizedBox(width: 10),
+            const Text('Fuel Exhausted'),
+          ],
+        ),
+        content: const Text(
+          'You\'ve used all your AI scans for now. Upgrade to Explorer for more scans, or check back later.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final savedPlaces = context.watch<SavedPlacesProvider>();
@@ -129,6 +173,8 @@ class _MainShellState extends State<MainShell> {
                     previewLocation: _previewLocation,
                     previewProfessionalPhotoUrl: _previewProfessionalPhotoUrl,
                     previewProfessionalPhotoLoading: _previewProfessionalPhotoLoading,
+                    isLinkAnalysisInProgress: _isLinkAnalysisInProgress,
+                    linkAnalysisStatusMessage: _linkAnalysisStatusMessage,
                     focusLocation: _focusLocationForMap,
                     onFocusHandled: _clearMapFocus,
                     onConfirmPreview: _previewLocation != null
@@ -139,11 +185,34 @@ class _MainShellState extends State<MainShell> {
                   )
                 : LibraryView(
                     key: const ValueKey('library'),
+                    refreshTrigger: _libraryRefreshKey,
                     onCollectionsChanged: () {
                       setState(() => _collectionsVersion++);
                     },
                   ),
           ),
+          if (kDebugMode)
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 8,
+              right: 12,
+              child: Material(
+                color: Colors.transparent,
+                child: TextButton.icon(
+                  onPressed: () async {
+                    await AuthService.instance.signOut();
+                  },
+                  icon: const Icon(Icons.logout_rounded, size: 18, color: AppColors.textSecondary),
+                  label: Text(
+                    'Çıkış (Test)',
+                    style: GoogleFonts.inter(
+                      fontSize: 12,
+                      color: AppColors.textSecondary,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ),
+            ),
           AnimatedSwitcher(
             duration: const Duration(milliseconds: 260),
             switchInCurve: Curves.easeOutCubic,
@@ -158,6 +227,11 @@ class _MainShellState extends State<MainShell> {
                       setState(() => _showAiOverlay = false);
                       _openAIScreen(context);
                     },
+                    onAnalyzeLink: (url) {
+                      setState(() => _showAiOverlay = false);
+                      _handleLinkAnalysis(context, url);
+                    },
+                    isAnalyzingLink: _isLinkAnalysisInProgress,
                   )
                 : const SizedBox.shrink(),
           ),
@@ -167,7 +241,120 @@ class _MainShellState extends State<MainShell> {
     );
   }
 
+  Future<void> _handleLinkAnalysis(BuildContext context, String url) async {
+    final trimmedUrl = url.trim();
+    if (trimmedUrl.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please paste a valid Instagram or TikTok link.'),
+        ),
+      );
+      return;
+    }
+
+    final lower = trimmedUrl.toLowerCase();
+    // tiktok.com covers v.tiktok.com, www.tiktok.com, vm.tiktok.com, etc.
+    final isTikTok = lower.contains('tiktok.com');
+    final isInstagram = lower.contains('instagram.com');
+
+    if (!isTikTok && !isInstagram) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please paste a valid Instagram or TikTok link.'),
+        ),
+      );
+      return;
+    }
+
+    final hasFuel = await _checkAiFuel(context);
+    if (!hasFuel || !context.mounted) return;
+
+    final aiService = AiService();
+    final apify = ApifyService();
+
+    setState(() {
+      _isLinkAnalysisInProgress = true;
+      _linkAnalysisStatusMessage = isTikTok
+          ? 'Analyzing TikTok video...'
+          : 'Analyzing Instagram post...';
+      _previewSpot = null;
+      _previewLocation = null;
+      _previewImageBytes = null;
+      _previewProfessionalPhotoUrl = null;
+      _previewProfessionalPhotoLoading = false;
+      _currentIndex = 0;
+    });
+
+    if (!context.mounted) return;
+
+    Navigator.of(context).push<void>(
+      PageRouteBuilder(
+        opaque: true,
+        barrierColor: AppColors.background,
+        pageBuilder: (_, __, ___) => AnalysisOverlayScreen(
+          imageProvider: null,
+          runAnalysis: () async {
+            final result = isTikTok
+                ? await apify.scrapeTikTok(trimmedUrl)
+                : await apify.scrapeInstagram(trimmedUrl);
+            if (result == null || result.caption.trim().isEmpty) {
+              return null;
+            }
+            return aiService.analyzeCaption(
+              result.caption,
+              locationHint: result.locationName,
+            );
+          },
+          imageBytes: null,
+          onPreviewReady: (spot, loc, _) {
+            if (!context.mounted) return;
+            Navigator.of(context).pop();
+            setState(() {
+              _isLinkAnalysisInProgress = false;
+              _linkAnalysisStatusMessage = null;
+            });
+            _setPreview(spot, loc, null);
+          },
+          onError: () {
+            if (context.mounted) {
+              Navigator.of(context).pop();
+              setState(() {
+                _isLinkAnalysisInProgress = false;
+                _linkAnalysisStatusMessage = null;
+              });
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    isTikTok
+                        ? 'TikTok analysis failed. Please try a different video link.'
+                        : 'We couldn\'t analyze this link. Please try another Instagram or TikTok URL.',
+                  ),
+                ),
+              );
+            }
+          },
+        ),
+        transitionsBuilder: (_, animation, __, child) {
+          final curved = CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutBack,
+          );
+          return FadeTransition(
+            opacity: curved,
+            child: ScaleTransition(
+              scale: Tween<double>(begin: 0.9, end: 1.0).animate(curved),
+              child: child,
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   Future<void> _openAIScreen(BuildContext context) async {
+    final hasFuel = await _checkAiFuel(context);
+    if (!hasFuel || !context.mounted) return;
+
     final picker = ImagePicker();
     final xFile = await picker.pickImage(
       source: ImageSource.gallery,
@@ -194,7 +381,15 @@ class _MainShellState extends State<MainShell> {
             _setPreview(spot, loc, bytes);
           },
           onError: () {
-            if (context.mounted) Navigator.of(context).pop();
+            if (context.mounted) {
+              Navigator.of(context).pop();
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Analysis failed. Please try again.'),
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+            }
           },
         ),
         transitionsBuilder: (_, animation, __, child) {
@@ -219,7 +414,12 @@ class _MainShellState extends State<MainShell> {
       minimum: const EdgeInsets.fromLTRB(0, 0, 0, 16),
       child: _FloatingNavBar(
         currentIndex: _currentIndex,
-        onTabTap: (i) => setState(() => _currentIndex = i),
+        onTabTap: (i) {
+          setState(() {
+            _currentIndex = i;
+            if (i == 1) _libraryRefreshKey++;
+          });
+        },
         onAINucleusTap: () {
           HapticFeedback.mediumImpact();
           setState(() => _showAiOverlay = true);
@@ -232,7 +432,7 @@ class _MainShellState extends State<MainShell> {
   }
 }
 
-/// Map Explorer tab: Map + FAB to open upload flow (HomeScreen).
+/// Map Explorer tab: Map + FAB to open upload flow.
 class _MapExplorerTab extends StatelessWidget {
   const _MapExplorerTab({
     super.key,
@@ -241,6 +441,8 @@ class _MapExplorerTab extends StatelessWidget {
     required this.previewLocation,
     required this.previewProfessionalPhotoUrl,
     required this.previewProfessionalPhotoLoading,
+    required this.isLinkAnalysisInProgress,
+    required this.linkAnalysisStatusMessage,
     required this.focusLocation,
     required this.onFocusHandled,
     required this.onConfirmPreview,
@@ -252,6 +454,8 @@ class _MapExplorerTab extends StatelessWidget {
   final MockLocation? previewLocation;
   final String? previewProfessionalPhotoUrl;
   final bool previewProfessionalPhotoLoading;
+  final bool isLinkAnalysisInProgress;
+  final String? linkAnalysisStatusMessage;
   final MockLocation? focusLocation;
   final VoidCallback? onFocusHandled;
   final void Function(CollectionModel collection)? onConfirmPreview;
@@ -265,6 +469,8 @@ class _MapExplorerTab extends StatelessWidget {
       previewLocation: previewLocation,
       previewProfessionalPhotoUrl: previewProfessionalPhotoUrl,
       previewProfessionalPhotoLoading: previewProfessionalPhotoLoading,
+      isLinkAnalysisInProgress: isLinkAnalysisInProgress,
+      linkAnalysisStatusMessage: linkAnalysisStatusMessage,
       focusLocation: focusLocation,
       onFocusHandled: onFocusHandled,
       onConfirmPreview: onConfirmPreview,
@@ -449,10 +655,14 @@ class _AiInputOverlay extends StatefulWidget {
     super.key,
     required this.onClose,
     required this.onScanPhoto,
+    required this.onAnalyzeLink,
+    required this.isAnalyzingLink,
   });
 
   final VoidCallback onClose;
   final VoidCallback onScanPhoto;
+  final ValueChanged<String> onAnalyzeLink;
+  final bool isAnalyzingLink;
 
   @override
   State<_AiInputOverlay> createState() => _AiInputOverlayState();
@@ -486,13 +696,8 @@ class _AiInputOverlayState extends State<_AiInputOverlay> {
   void _onAnalyzeLink() {
     if (_linkController.text.trim().isEmpty) return;
     HapticFeedback.mediumImpact();
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Link analysis coming soon'),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
     widget.onClose();
+    widget.onAnalyzeLink(_linkController.text.trim());
   }
 
   @override
@@ -500,71 +705,69 @@ class _AiInputOverlayState extends State<_AiInputOverlay> {
     final mediaQuery = MediaQuery.of(context);
     final bottomPadding = 16.0 + mediaQuery.padding.bottom + 90.0; // leave space for TabBar
 
-    return Positioned.fill(
-      child: IgnorePointer(
-        ignoring: false,
-        child: AnimatedOpacity(
-          duration: const Duration(milliseconds: 220),
-          curve: Curves.easeOutCubic,
-          opacity: 1,
-          child: Column(
-            children: [
-              Expanded(
-                child: ClipRect(
-                  child: BackdropFilter(
-                    filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
-                    child: Container(
-                      color: Colors.black.withValues(alpha: 0.75),
-                      child: SafeArea(
-                        bottom: false,
-                        child: Padding(
-                          padding: EdgeInsets.fromLTRB(16, 16, 16, bottomPadding),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              Row(
-                                children: [
-                                  const SizedBox(width: 32),
-                                  Expanded(
-                                    child: Center(
-                                      child: Text(
-                                        'What would you like to do?',
-                                        style: GoogleFonts.inter(
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.w500,
-                                          color: Colors.white.withValues(alpha: 0.9),
-                                        ),
+    return IgnorePointer(
+      ignoring: false,
+      child: AnimatedOpacity(
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+        opacity: 1,
+        child: Column(
+          children: [
+            Expanded(
+              child: ClipRect(
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
+                  child: Container(
+                    color: Colors.black.withValues(alpha: 0.75),
+                    child: SafeArea(
+                      bottom: false,
+                      child: Padding(
+                        padding: EdgeInsets.fromLTRB(16, 16, 16, bottomPadding),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Row(
+                              children: [
+                                const SizedBox(width: 32),
+                                Expanded(
+                                  child: Center(
+                                    child: Text(
+                                      'What would you like to do?',
+                                      style: GoogleFonts.inter(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w500,
+                                        color: Colors.white.withValues(alpha: 0.9),
                                       ),
                                     ),
                                   ),
-                                  IconButton(
-                                    icon: const Icon(Icons.close_rounded, size: 22),
-                                    color: Colors.white.withValues(alpha: 0.9),
-                                    onPressed: widget.onClose,
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 18),
-                              Expanded(
-                                child: AnimatedSwitcher(
-                                  duration: const Duration(milliseconds: 240),
-                                  switchInCurve: Curves.easeOutCubic,
-                                  switchOutCurve: Curves.easeInCubic,
-                                  child: _showLinkInput
-                                      ? _buildLinkInputView()
-                                      : _buildOptionsView(),
                                 ),
+                                IconButton(
+                                  icon: const Icon(Icons.close_rounded, size: 22),
+                                  color: Colors.white.withValues(alpha: 0.9),
+                                  onPressed: widget.onClose,
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 18),
+                            Expanded(
+                              child: AnimatedSwitcher(
+                                duration: const Duration(milliseconds: 240),
+                                switchInCurve: Curves.easeOutCubic,
+                                switchOutCurve: Curves.easeInCubic,
+                                child: _showLinkInput
+                                    ? _buildLinkInputView()
+                                    : _buildOptionsView(),
                               ),
-                            ],
-                          ),
+                            ),
+                          ],
                         ),
                       ),
                     ),
                   ),
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -660,6 +863,7 @@ class _AiInputOverlayState extends State<_AiInputOverlay> {
                   fontWeight: FontWeight.w500,
                   color: Colors.white,
                 ),
+                onChanged: (_) => setState(() {}),
                 cursorColor: AppColors.primaryAccent,
                 decoration: InputDecoration(
                   hintText: 'Paste URL here...',
@@ -691,7 +895,9 @@ class _AiInputOverlayState extends State<_AiInputOverlay> {
         SizedBox(
           width: double.infinity,
           child: FilledButton(
-            onPressed: _linkController.text.trim().isEmpty ? null : _onAnalyzeLink,
+            onPressed: _linkController.text.trim().isEmpty
+                ? null
+                : _onAnalyzeLink,
             style: FilledButton.styleFrom(
               backgroundColor: AppColors.primaryAccent,
               foregroundColor: Colors.white,

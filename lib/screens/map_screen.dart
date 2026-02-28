@@ -39,6 +39,8 @@ class MapScreen extends StatefulWidget {
     this.previewLocation,
     this.previewProfessionalPhotoUrl,
     this.previewProfessionalPhotoLoading = false,
+    this.isLinkAnalysisInProgress = false,
+    this.linkAnalysisStatusMessage,
     this.focusLocation,
     this.onFocusHandled,
     this.onConfirmPreview,
@@ -52,6 +54,11 @@ class MapScreen extends StatefulWidget {
   final String? previewProfessionalPhotoUrl;
   /// True while fetching professional photo (show "Fetching professional visuals...").
   final bool previewProfessionalPhotoLoading;
+  /// True while we are analyzing a pasted social link (Apify + Gemini + geocode).
+  /// Used to show the DiscoveryRevealCard in a loading state before the final spot is known.
+  final bool isLinkAnalysisInProgress;
+  /// Optional status text shown while a social link is being analyzed.
+  final String? linkAnalysisStatusMessage;
   /// When set (e.g. from Saved), fly to this location and then call [onFocusHandled].
   final MockLocation? focusLocation;
   final VoidCallback? onFocusHandled;
@@ -188,14 +195,15 @@ class _MapScreenState extends State<MapScreen>
   Widget build(BuildContext context) {
     final size = MediaQuery.sizeOf(context);
     final showPreview = widget.previewSpot != null && widget.previewLocation != null;
+    final showCard = showPreview || widget.isLinkAnalysisInProgress;
     return Scaffold(
       backgroundColor: AppColors.background,
       body: Stack(
         fit: StackFit.expand,
         children: [
           _buildMap(size),
-          if (!showPreview) _buildExploreSheet(),
-          if (showPreview) _buildFoundItCard(size),
+          if (!showCard) _buildExploreSheet(),
+          if (showCard) _buildFoundItCard(size),
           Positioned(
             top: MediaQuery.of(context).padding.top + 8,
             left: 0,
@@ -227,7 +235,11 @@ class _MapScreenState extends State<MapScreen>
   }
 
   Widget _buildFoundItCard(Size size) {
-    final spot = widget.previewSpot!;
+    final isLoadingOnly =
+        widget.isLinkAnalysisInProgress && widget.previewSpot == null;
+    final spot = widget.previewSpot;
+    final loadingTitle =
+        widget.linkAnalysisStatusMessage ?? 'Analyzing social link & finding location...';
     return Positioned(
       left: 0,
       right: 0,
@@ -260,7 +272,8 @@ class _MapScreenState extends State<MapScreen>
                         children: [
                           _DiscoveryCardThumbnail(
                             professionalPhotoUrl: widget.previewProfessionalPhotoUrl,
-                            professionalPhotoLoading: widget.previewProfessionalPhotoLoading,
+                            professionalPhotoLoading:
+                                isLoadingOnly || widget.previewProfessionalPhotoLoading,
                           ),
                           const SizedBox(width: 12),
                           Expanded(
@@ -268,8 +281,8 @@ class _MapScreenState extends State<MapScreen>
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  spot.name,
-                                  maxLines: 1,
+                                  isLoadingOnly ? loadingTitle : (spot?.name ?? ''),
+                                  maxLines: 2,
                                   overflow: TextOverflow.ellipsis,
                                   style: GoogleFonts.inter(
                                     fontSize: 18,
@@ -278,7 +291,7 @@ class _MapScreenState extends State<MapScreen>
                                   ),
                                 ),
                                 const SizedBox(height: 4),
-                                if (spot.city.isNotEmpty)
+                                if (!isLoadingOnly && spot != null && spot.city.isNotEmpty)
                                   Text(
                                     spot.city,
                                     maxLines: 1,
@@ -305,8 +318,9 @@ class _MapScreenState extends State<MapScreen>
                           ),
                         ],
                       ),
-                      if (widget.previewProfessionalPhotoUrl != null ||
-                          widget.previewProfessionalPhotoLoading) ...[
+                      if (!isLoadingOnly &&
+                          (widget.previewProfessionalPhotoUrl != null ||
+                              widget.previewProfessionalPhotoLoading)) ...[
                         const SizedBox(height: 6),
                         Text(
                           'Photos by Google',
@@ -317,7 +331,9 @@ class _MapScreenState extends State<MapScreen>
                           ),
                         ),
                       ],
-                      if (spot.description.isNotEmpty) ...[
+                      if (!isLoadingOnly &&
+                          spot != null &&
+                          spot.description.isNotEmpty) ...[
                         const SizedBox(height: 10),
                         Text(
                           spot.description,
@@ -332,52 +348,53 @@ class _MapScreenState extends State<MapScreen>
                         ),
                       ],
                       const SizedBox(height: 16),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Container(
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(16),
-                                gradient: LinearGradient(
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                  colors: [
-                                    AppColors.primaryAccent,
-                                    AppColors.primaryAccent.withValues(alpha: 0.85),
+                      if (!isLoadingOnly)
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(16),
+                                  gradient: LinearGradient(
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                    colors: [
+                                      AppColors.primaryAccent,
+                                      AppColors.primaryAccent.withValues(alpha: 0.85),
+                                    ],
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: AppColors.primaryAccent
+                                          .withValues(alpha: 0.55),
+                                      blurRadius: 16,
+                                      offset: const Offset(0, 6),
+                                    ),
                                   ],
                                 ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: AppColors.primaryAccent
-                                        .withValues(alpha: 0.55),
-                                    blurRadius: 16,
-                                    offset: const Offset(0, 6),
+                                child: FilledButton.icon(
+                                  onPressed: () => _onAddToMapPressed(),
+                                  icon: const Icon(
+                                    LucideIcons.bookmarkPlus,
+                                    size: 18,
                                   ),
-                                ],
-                              ),
-                              child: FilledButton.icon(
-                                onPressed: () => _onAddToMapPressed(),
-                                icon: const Icon(
-                                  LucideIcons.bookmarkPlus,
-                                  size: 18,
-                                ),
-                                label: const Text('Add to My Journeys'),
-                                style: FilledButton.styleFrom(
-                                  backgroundColor: Colors.transparent,
-                                  foregroundColor: Colors.white,
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 12,
-                                    horizontal: 10,
-                                  ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(16),
+                                  label: const Text('Add to My Journeys'),
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: Colors.transparent,
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 12,
+                                      horizontal: 10,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(16),
+                                    ),
                                   ),
                                 ),
                               ),
                             ),
-                          ),
-                        ],
-                      ),
+                          ],
+                        ),
                     ],
                   ),
                 ),
@@ -443,13 +460,24 @@ class _MapScreenState extends State<MapScreen>
       },
     );
 
-    await _supabase.savePin(pin);
-    setState(() {
-      _pinsFuture = _loadPins();
-    });
-
-    await _showSavedSuccessOverlay();
-    widget.onConfirmPreview?.call(selected);
+    try {
+      await _supabase.savePin(pin);
+      await _supabase.incrementAiScansCount();
+      if (!mounted) return;
+      setState(() {
+        _pinsFuture = _loadPins();
+      });
+      await _showSavedSuccessOverlay();
+      widget.onConfirmPreview?.call(selected);
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not save. Please try again.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   Future<void> _showSavedSuccessOverlay() async {
@@ -521,7 +549,7 @@ class _MapScreenState extends State<MapScreen>
           TileLayer(
             urlTemplate: _cartoDarkUrl,
             subdomains: _cartoSubdomains,
-            userAgentPackageName: 'com.example.pintok',
+            userAgentPackageName: 'com.keremugurlu.pintok',
             retinaMode: true,
           ),
           if (widget.previewLocation != null)

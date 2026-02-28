@@ -497,7 +497,7 @@ class _DetailBottomSheetState extends State<_DetailBottomSheet> {
                               TileLayer(
                                 urlTemplate: _cartoDarkUrl,
                                 subdomains: _cartoSubdomains,
-                                userAgentPackageName: 'com.example.pintok',
+                                userAgentPackageName: 'com.keremugurlu.pintok',
                               ),
                               MarkerLayer(
                                 markers: [

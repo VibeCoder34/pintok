@@ -12,9 +12,11 @@ import '../models/library_models.dart';
 import '../models/profile_data.dart';
 import '../models/pin_model.dart';
 import '../services/supabase_service.dart';
+import '../widgets/profile_avatar.dart';
 import 'collection_detail_view.dart';
 import 'create_collection_sheet.dart';
 import '../theme/app_theme.dart';
+import '../widgets/fuel_gauge.dart';
 
 /// My Journey: profile header + tabbed My Pins (owned) / Saved (bookmarked from feed).
 class ProfileView extends StatefulWidget {
@@ -47,14 +49,28 @@ class _ProfileViewState extends State<ProfileView>
 
   Future<void> _loadProfileAndPins() async {
     setState(() => _loading = true);
-    final profileRow = await _supabase.getCurrentUserProfile();
-    final pins = await _supabase.getPins(null);
-    final collections = await _supabase.getCollections();
-    final pinsCount = await _supabase.getMyPinsCount();
-    final collectionsCount = await _supabase.getMyCollectionsCount();
+    // Fire all Supabase reads in parallel to avoid stacking network latency.
+    final profileFuture = _supabase.getCurrentUserProfile();
+    final pinsFuture = _supabase.getPins(null);
+    final collectionsFuture = _supabase.getCollections();
+    final quotaFuture = _supabase.getAiScanQuota();
+
+    final profileRow = await profileFuture;
+    final pins = await pinsFuture;
+    final collections = await collectionsFuture;
+    final quota = await quotaFuture;
+    final pinsCount = pins.length;
+    final collectionsCount = collections.length;
     final countByCollection = <String, int>{};
+    final firstPinImageByCollection = <String, String>{};
+    final pinsByCreatedAt = List<PinModel>.from(pins)..sort((a, b) => a.createdAt.compareTo(b.createdAt));
     for (final p in pins) {
       countByCollection[p.collectionId] = (countByCollection[p.collectionId] ?? 0) + 1;
+    }
+    for (final p in pinsByCreatedAt) {
+      if (p.imageUrl != null && p.imageUrl!.isNotEmpty) {
+        firstPinImageByCollection.putIfAbsent(p.collectionId, () => p.imageUrl!);
+      }
     }
     final mapped = collections
         .map(
@@ -62,21 +78,27 @@ class _ProfileViewState extends State<ProfileView>
             id: c.id,
             name: c.name,
             pinCount: countByCollection[c.id] ?? 0,
-            coverImageUrl: '',
-            isPrivate: false,
+            coverImageUrl: (c.coverImageUrl != null && c.coverImageUrl!.isNotEmpty)
+                ? c.coverImageUrl!
+                : (firstPinImageByCollection[c.id] ?? ''),
+            coverColor: c.coverColor,
           ),
         )
         .toList();
     if (mounted) {
       setState(() {
+        final displayName = _supabase.getDisplayName(profileRow);
         _profile = UserProfile(
-          username: (profileRow?['username'] as String?) ?? 'traveler',
+          displayName: displayName,
           bio: (profileRow?['bio'] as String?) ??
               'No adventures written yet.',
           avatarUrl: profileRow?['avatar_url'] as String?,
+          avatarKey: profileRow?['avatar_key'] as String?,
           pinsCount: pinsCount,
           collectionsCount: collectionsCount,
           impactCount: 0,
+          aiScansUsed: quota['ai_scans_count'] ?? 0,
+          aiScansLimit: quota['ai_scans_limit'],
         );
         _myPins = pins;
         _profileCollections = mapped;
@@ -101,7 +123,7 @@ class _ProfileViewState extends State<ProfileView>
           name: created.name,
           pinCount: 0,
           coverImageUrl: '',
-          isPrivate: false,
+          coverColor: created.coverColor,
         ),
       );
     });
@@ -144,7 +166,7 @@ class _ProfileViewState extends State<ProfileView>
                         ),
                       ),
                     )
-                  : _ProfileHeader(profile: _profile!),
+                  : _ProfileHeader(profile: _profile!, onAvatarChanged: _loadProfileAndPins),
             ),
             SliverToBoxAdapter(
               child: _ShareProfileButton(
@@ -190,7 +212,7 @@ class _ProfileViewState extends State<ProfileView>
   }
 }
 
-/// Tab bar: My Pins | Saved | Collections.
+/// Tab bar: My Pins | Saved | Journeys.
 class _ProfileTabBar extends StatelessWidget {
   const _ProfileTabBar({
     required this.selectedIndex,
@@ -227,7 +249,7 @@ class _ProfileTabBar extends StatelessWidget {
           Expanded(
             child: _TabChip(
               icon: LucideIcons.folderOpen,
-              label: 'Collections',
+              label: 'Journeys',
               isSelected: selectedIndex == 2,
               onTap: () => onTabTap(2),
             ),
@@ -393,7 +415,7 @@ class _ProfileCollectionsTab extends StatelessWidget {
                 builder: (_) => CollectionDetailView(collection: collection),
               ),
             ).then((result) {
-              if (result != null && (result['deleted'] == true || result['updated'] != null)) {
+              if (result != null && (result['deleted'] == true || result['updated'] != null || result['coverUpdated'] == true)) {
                 onRefresh();
               }
             });
@@ -487,9 +509,9 @@ class _ProfileCollectionCard extends StatelessWidget {
                       ? Image.network(
                           collection.coverImageUrl,
                           fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => _placeholderCover(),
+                          errorBuilder: (_, __, ___) => _placeholderCover(collection.coverColor),
                         )
-                      : _placeholderCover(),
+                      : _placeholderCover(collection.coverColor),
                 ),
               ),
               Padding(
@@ -526,13 +548,28 @@ class _ProfileCollectionCard extends StatelessWidget {
     );
   }
 
-  Widget _placeholderCover() {
+  Widget _placeholderCover(String? coverColorHex) {
+    Color color = AppColors.primaryAccent.withValues(alpha: 0.2);
+    if (coverColorHex != null && coverColorHex.isNotEmpty) {
+      try {
+        final hex = coverColorHex.startsWith('#') ? coverColorHex.substring(1) : coverColorHex;
+        if (hex.length >= 6) {
+          color = Color(0xFF000000 | int.parse(hex.substring(0, 6), radix: 16)).withValues(alpha: 0.9);
+        }
+      } catch (_) {}
+    }
     return Container(
-      color: AppColors.primaryAccent.withValues(alpha: 0.2),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [color, color.withValues(alpha: 0.6)],
+        ),
+      ),
       child: Icon(
         LucideIcons.mapPin,
         size: 40,
-        color: AppColors.primaryAccent.withValues(alpha: 0.6),
+        color: Colors.white.withValues(alpha: 0.8),
       ),
     );
   }
@@ -674,11 +711,15 @@ class _EmptyState extends StatelessWidget {
   }
 }
 
-/// Profile header: avatar with glow, username, bio, Pins / Collections / Impact.
+/// Profile header: avatar with glow, display name, bio, Pins / Journeys.
 class _ProfileHeader extends StatelessWidget {
-  const _ProfileHeader({required this.profile});
+  const _ProfileHeader({
+    required this.profile,
+    required this.onAvatarChanged,
+  });
 
   final UserProfile profile;
+  final VoidCallback onAvatarChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -686,10 +727,15 @@ class _ProfileHeader extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(24, 20, 24, 16),
       child: Column(
         children: [
-          _GlowAvatar(avatarUrl: profile.avatarUrl),
+          ProfileAvatar(
+            avatarUrl: profile.avatarUrl,
+            avatarKey: profile.avatarKey,
+            radius: 40,
+            onAvatarChanged: onAvatarChanged,
+          ),
           const SizedBox(height: 16),
           Text(
-            '@${profile.username}',
+            profile.displayName,
             style: GoogleFonts.inter(
               fontSize: 18,
               fontWeight: FontWeight.w700,
@@ -706,72 +752,22 @@ class _ProfileHeader extends StatelessWidget {
               height: 1.4,
             ),
           ),
+          const SizedBox(height: 16),
+          FuelGauge(
+            scansUsed: profile.aiScansUsed,
+            scansLimit: profile.aiScansLimit,
+            loading: false,
+            compact: true,
+          ),
           const SizedBox(height: 20),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
               _StatItem(value: '${profile.pinsCount}', label: 'Pins'),
-              _StatItem(value: '${profile.collectionsCount}', label: 'Collections'),
-              _StatItem(value: '${profile.impactCount}', label: 'Impact'),
+              _StatItem(value: '${profile.collectionsCount}', label: 'Journeys'),
             ],
           ),
         ],
-      ),
-    );
-  }
-}
-
-/// Circular avatar with subtle glowing border.
-class _GlowAvatar extends StatelessWidget {
-  const _GlowAvatar({this.avatarUrl});
-
-  final String? avatarUrl;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.primaryAccent.withValues(alpha: 0.4),
-            blurRadius: 20,
-            spreadRadius: 0,
-          ),
-          BoxShadow(
-            color: AppColors.primaryAccent.withValues(alpha: 0.2),
-            blurRadius: 32,
-            spreadRadius: 2,
-          ),
-        ],
-      ),
-      child: Container(
-        padding: const EdgeInsets.all(3),
-        decoration: const BoxDecoration(
-          shape: BoxShape.circle,
-          gradient: LinearGradient(
-            colors: [AppColors.primaryAccent, AppColors.secondaryAccent],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-        ),
-        child: Container(
-          padding: const EdgeInsets.all(2),
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: AppColors.background,
-          ),
-          child: CircleAvatar(
-            radius: 40,
-            backgroundColor: AppColors.surfaceDark,
-            backgroundImage: avatarUrl != null && avatarUrl!.isNotEmpty
-                ? NetworkImage(avatarUrl!)
-                : null,
-            child: avatarUrl == null || avatarUrl!.isEmpty
-                ? Icon(LucideIcons.user, size: 44, color: AppColors.textSecondary.withValues(alpha: 0.8))
-                : null,
-          ),
-        ),
       ),
     );
   }

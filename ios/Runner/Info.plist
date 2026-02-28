@@ -47,5 +47,24 @@
 	<true/>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>PinTok needs access to your photos to analyze travel screenshots and pin locations.</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>pintok</string>
+			</array>
+			<key>CFBundleURLName</key>
+			<string>com.keremugurlu.pintok</string>
+		</dict>
+		<dict>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.84675114871-29nhrgdm2ho5k19t9gqjfn9tftfrpfa0</string>
+			</array>
+			<key>CFBundleURLName</key>
+			<string>Google Sign-In</string>
+		</dict>
+	</array>
 </dict>
 </plist>

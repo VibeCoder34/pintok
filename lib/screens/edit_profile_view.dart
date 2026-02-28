@@ -15,32 +15,18 @@ class EditProfileView extends StatefulWidget {
 
 class _EditProfileViewState extends State<EditProfileView> {
   final TextEditingController _displayNameController = TextEditingController();
-  final TextEditingController _usernameController =
-      TextEditingController(text: '@traveler');
   final TextEditingController _bioController = TextEditingController();
   final TextEditingController _linkController = TextEditingController();
 
   @override
   void dispose() {
     _displayNameController.dispose();
-    _usernameController.dispose();
     _bioController.dispose();
     _linkController.dispose();
     super.dispose();
   }
 
   void _onSave() {
-    final username = _usernameController.text.trim();
-    if (username.isEmpty || !username.startsWith('@') || username.contains(' ')) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Username must start with @ and contain no spaces.'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-      return;
-    }
-
     HapticFeedback.lightImpact();
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
@@ -101,15 +87,6 @@ class _EditProfileViewState extends State<EditProfileView> {
                           hintText: 'Your name or nickname',
                           keyboardType: TextInputType.name,
                           maxLength: 40,
-                        ),
-                        const SizedBox(height: 18),
-                        _SectionLabel('Username'),
-                        const SizedBox(height: 8),
-                        _GlassTextField(
-                          controller: _usernameController,
-                          hintText: '@username',
-                          keyboardType: TextInputType.text,
-                          maxLength: 24,
                         ),
                         const SizedBox(height: 18),
                         _SectionLabel('Bio'),

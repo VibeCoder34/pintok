@@ -19,7 +19,6 @@ class EditProfileScreen extends StatefulWidget {
 class _EditProfileScreenState extends State<EditProfileScreen> {
   final _displayNameController = TextEditingController();
   final _bioController = TextEditingController();
-  final _usernameController = TextEditingController();
   final SupabaseService _supabase = SupabaseService();
   bool _hasChanges = false;
   bool _loading = true;
@@ -29,7 +28,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     super.initState();
     _displayNameController.addListener(_markChanges);
     _bioController.addListener(_markChanges);
-    _usernameController.addListener(_markChanges);
     _loadProfile();
   }
 
@@ -39,7 +37,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     setState(() {
       _displayNameController.text = (profile?['full_name'] as String?)?.trim() ?? '';
       _bioController.text = (profile?['bio'] as String?)?.trim() ?? '';
-      _usernameController.text = (profile?['username'] as String?)?.trim() ?? '';
       _loading = false;
     });
   }
@@ -52,16 +49,14 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   void dispose() {
     _displayNameController.dispose();
     _bioController.dispose();
-    _usernameController.dispose();
     super.dispose();
   }
 
   Future<void> _save() async {
     final fullName = _displayNameController.text.trim();
     final bio = _bioController.text.trim();
-    final username = _usernameController.text.trim().isEmpty ? null : _usernameController.text.trim();
     try {
-      await _supabase.updateProfile(fullName, bio, username: username);
+      await _supabase.updateProfile(fullName, bio);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Profile saved'), behavior: SnackBarBehavior.floating),
@@ -147,13 +142,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                       hint: 'Tell us a bit about yourself',
                       icon: LucideIcons.penLine,
                       maxLines: 3,
-                    ),
-                    const SizedBox(height: 16),
-                    _GlassField(
-                      label: 'Username (optional)',
-                      controller: _usernameController,
-                      hint: 'Username without @',
-                      icon: LucideIcons.atSign,
                     ),
                   ],
                 ),

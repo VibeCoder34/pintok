@@ -36,8 +36,9 @@ class SupabaseService {
   }
 
   /// Create a new collection for the current user.
+  /// [coverColor] optional hex without # (e.g. "5E35B1") for card background when no cover image.
   Future<CollectionModel> createCollection(String name,
-      {String? description}) async {
+      {String? description, String? coverColor}) async {
     final uid = _currentUserId;
     if (uid == null) {
       throw StateError('No authenticated user for createCollection()');
@@ -49,6 +50,8 @@ class SupabaseService {
           'user_id': uid,
           'name': name,
           'description': description,
+          'is_private': true,
+          if (coverColor != null && coverColor.isNotEmpty) 'cover_color': coverColor,
         })
         .select()
         .single();
@@ -57,9 +60,9 @@ class SupabaseService {
         Map<String, dynamic>.from(response as Map));
   }
 
-  /// Update a collection's name (and optionally description).
+  /// Update a collection's name (and optionally description, visibility, cover).
   Future<CollectionModel> updateCollection(String id, String newName,
-      {String? description}) async {
+      {String? description, bool? isPrivate, String? coverImageUrl}) async {
     final uid = _currentUserId;
     if (uid == null) {
       throw StateError('No authenticated user for updateCollection()');
@@ -67,6 +70,8 @@ class SupabaseService {
 
     final payload = <String, dynamic>{'name': newName};
     if (description != null) payload['description'] = description;
+    if (isPrivate != null) payload['is_private'] = isPrivate;
+    if (coverImageUrl != null) payload['cover_image_url'] = coverImageUrl;
 
     final response = await _client
         .from('collections')
@@ -78,6 +83,22 @@ class SupabaseService {
 
     return CollectionModel.fromMap(
         Map<String, dynamic>.from(response as Map));
+  }
+
+  /// Set or clear the collection cover image. Pass [imageUrl] to set, null to remove (fallback to first pin).
+  Future<CollectionModel> setCollectionCover(String collectionId, String? imageUrl) async {
+    final uid = _currentUserId;
+    if (uid == null) {
+      throw StateError('No authenticated user for setCollectionCover()');
+    }
+    final response = await _client
+        .from('collections')
+        .update(<String, dynamic>{'cover_image_url': imageUrl})
+        .eq('id', collectionId)
+        .eq('user_id', uid)
+        .select()
+        .single();
+    return CollectionModel.fromMap(Map<String, dynamic>.from(response as Map));
   }
 
   /// Delete a collection (pins in it are cascade-deleted by DB).
@@ -183,20 +204,76 @@ class SupabaseService {
     final uid = _currentUserId;
     if (uid == null) return null;
 
-    final response = await _client
-        .from('profiles')
-        .select('*')
-        .eq('id', uid)
-        .limit(1);
+    final response =
+        await _client.from('profiles').select('*').eq('id', uid).limit(1);
 
     final rows = List<Map<String, dynamic>>.from(response as List);
     if (rows.isEmpty) return null;
     return rows.first;
   }
 
-  /// Update the current user's profile (full_name, bio, optional username).
-  Future<void> updateProfile(String fullName, String bio,
-      {String? username}) async {
+  /// Resolve display name: profile full_name, else auth user_metadata full_name, else email local part.
+  String getDisplayName(Map<String, dynamic>? profileRow) {
+    final fromProfile = (profileRow?['full_name'] as String?)?.trim();
+    if (fromProfile != null && fromProfile.isNotEmpty) return fromProfile;
+    final user = _client.auth.currentUser;
+    final fromMeta = (user?.userMetadata?['full_name'] as String?)?.trim();
+    if (fromMeta != null && fromMeta.isNotEmpty) return fromMeta;
+    final email = user?.email?.trim();
+    if (email != null && email.isNotEmpty) {
+      final part = email.split('@').first.trim();
+      if (part.isNotEmpty) return part;
+    }
+    return 'Traveler';
+  }
+
+  /// Fetch the current user's AI scan quota from profiles.
+  /// Returns safe defaults (0, null) if columns missing or query fails.
+  Future<Map<String, int?>> getAiScanQuota() async {
+    final uid = _currentUserId;
+    if (uid == null) {
+      return <String, int?>{'ai_scans_count': 0, 'ai_scans_limit': null};
+    }
+    try {
+      final response = await _client
+          .from('profiles')
+          .select('ai_scans_count, ai_scans_limit')
+          .eq('id', uid)
+          .maybeSingle();
+
+      if (response == null) {
+        return <String, int?>{'ai_scans_count': 0, 'ai_scans_limit': null};
+      }
+
+      final map = Map<String, dynamic>.from(response as Map);
+      final count = map['ai_scans_count'];
+      final limit = map['ai_scans_limit'];
+
+      return <String, int?>{
+        'ai_scans_count': count is int ? count : (count is num ? count.toInt() : int.tryParse('$count') ?? 0),
+        'ai_scans_limit': limit is int ? limit : (limit is num ? limit.toInt() : int.tryParse('$limit')),
+      };
+    } catch (_) {
+      return <String, int?>{'ai_scans_count': 0, 'ai_scans_limit': null};
+    }
+  }
+
+  /// Increment the current user's ai_scans_count by 1. Call after a successful AI scan (pin saved).
+  Future<void> incrementAiScansCount() async {
+    final uid = _currentUserId;
+    if (uid == null) {
+      throw StateError('No authenticated user for incrementAiScansCount()');
+    }
+    final quota = await getAiScanQuota();
+    final current = quota['ai_scans_count'] ?? 0;
+    await _client
+        .from('profiles')
+        .update(<String, dynamic>{'ai_scans_count': current + 1})
+        .eq('id', uid);
+  }
+
+  /// Update the current user's profile (full_name, bio).
+  Future<void> updateProfile(String fullName, String bio) async {
     final uid = _currentUserId;
     if (uid == null) {
       throw StateError('No authenticated user for updateProfile()');
@@ -207,9 +284,20 @@ class SupabaseService {
       'bio': bio,
       'updated_at': DateTime.now().toUtc().toIso8601String(),
     };
-    if (username != null) payload['username'] = username;
 
     await _client.from('profiles').update(payload).eq('id', uid);
+  }
+
+  /// Update the current user's Bitmoji avatar key (gencerkek, genckadin, yaslierkek, yaslikadin).
+  Future<void> updateProfileAvatarKey(String? avatarKey) async {
+    final uid = _currentUserId;
+    if (uid == null) {
+      throw StateError('No authenticated user for updateProfileAvatarKey()');
+    }
+    await _client.from('profiles').update({
+      'avatar_key': avatarKey,
+      'updated_at': DateTime.now().toUtc().toIso8601String(),
+    }).eq('id', uid);
   }
 
   /// Wipe current user's data (pins, collections, profile). Call before signOut for Delete Account.
